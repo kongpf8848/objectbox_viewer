@@ -40,6 +40,8 @@ dependencies:
   ffi: ^2.2.0
   equatable: ^2.0.8
   path: ^1.9.1
+  objectbox: 5.3.1
+  objectbox_flutter_libs: 5.3.1
 
 dev_dependencies:
   flutter_test:

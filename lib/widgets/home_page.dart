@@ -4,10 +4,23 @@ import 'package:file_picker/file_picker.dart';
 import '../bloc/db_bloc.dart';
 import 'entity_list_panel.dart';
 import 'data_table_panel.dart';
+import 'entity_schema_panel.dart';
 import 'schema_detail_panel.dart';
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  static const double _minWidth = 180;
+  static const double _maxWidth = 500;
+  static const double _defaultWidth = 260;
+
+  double _leftWidth = _defaultWidth;
+  bool _isLeftVisible = true;
 
   @override
   Widget build(BuildContext context) {
@@ -22,44 +35,51 @@ class HomePage extends StatelessWidget {
         if (state is DbLoaded) {
           return Column(
             children: [
-              // Show a banner when model was discovered (no objectbox-model.json)
-              if (state.isDiscovered)
-                _DiscoveryBanner(
-                  onReload: () => context.read<DbBloc>().add(CloseDatabase()),
-                ),
               Expanded(
                 child: Row(
                   children: [
-                    // Left: Entity list
-                    SizedBox(
-                      width: 260,
-                      child: EntityListPanel(
-                        model: state.model,
-                        selectedEntity: state.selectedEntity,
-                        onEntitySelected: (entity) =>
-                            context.read<DbBloc>().add(SelectEntity(entity)),
-                        onClose: () => context.read<DbBloc>().add(CloseDatabase()),
-                        onOpenDb: () => _openDatabase(context),
+                    // Left: Entity list (animated width)
+                    ClipRect(
+                      child: AnimatedContainer(
+                        width: _isLeftVisible ? _leftWidth : 0,
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeInOut,
+                        child: _isLeftVisible
+                            ? EntityListPanel(
+                                model: state.model,
+                                selectedEntity: state.selectedEntity,
+                                viewMode: state.viewMode,
+                                onEntitySelected: (entity) => context
+                                    .read<DbBloc>()
+                                    .add(SelectEntity(entity)),
+                                onViewModeChanged: (mode) => context
+                                    .read<DbBloc>()
+                                    .add(SelectViewMode(mode)),
+                                onOpenDb: () => _openDatabase(context),
+                              )
+                            : const SizedBox.shrink(),
                       ),
                     ),
-                    const VerticalDivider(width: 1),
-                    // Right: Content
-                    Expanded(
-                      child: state.selectedEntity == null
-                          ? SchemaDetailPanel(
-                              model: state.model,
-                              fileInfo: state.fileInfo,
-                              discovered: state.isDiscovered,
-                            )
-                          : DataTablePanel(
-                              entity: state.selectedEntity!,
-                              rows: state.rows,
-                              error: state.error,
-                              onRefresh: () =>
-                                  context.read<DbBloc>().add(RefreshData()),
-                              discovered: state.isDiscovered,
-                            ),
+                    // Resizable divider
+                    _ResizableDivider(
+                      onDrag: (delta) => setState(() {
+                        if (_isLeftVisible) {
+                          _leftWidth = (_leftWidth + delta).clamp(0, _maxWidth);
+                          if (_leftWidth < 60) {
+                            _isLeftVisible = false;
+                            _leftWidth = 0;
+                          }
+                        } else {
+                          _leftWidth = (_leftWidth + delta).clamp(0, _maxWidth);
+                          if (_leftWidth > 20) {
+                            _isLeftVisible = true;
+                            _leftWidth = _minWidth;
+                          }
+                        }
+                      }),
                     ),
+                    // Right: Content
+                    Expanded(child: _buildRightPanel(context, state)),
                   ],
                 ),
               ),
@@ -81,46 +101,33 @@ class HomePage extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
-}
 
-/// Banner shown when the database was opened without objectbox-model.json
-class _DiscoveryBanner extends StatelessWidget {
-  final VoidCallback onReload;
-  const _DiscoveryBanner({required this.onReload});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Material(
-      color: cs.secondaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          children: [
-            Icon(Icons.lightbulb_outline, size: 18, color: cs.onSecondaryContainer),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'No objectbox-model.json found — entities discovered directly from the LMDB file. '
-                'Field names (field_0, field_1, …) and types are auto-detected.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: cs.onSecondaryContainer,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: onReload,
-              child: const Text('Open Different DB'),
-            ),
-          ],
-        ),
-      ),
+  Widget _buildRightPanel(BuildContext context, DbLoaded state) {
+    if (state.selectedEntity == null) {
+      return SchemaDetailPanel(
+        model: state.model,
+        fileInfo: state.fileInfo,
+        discovered: state.isDiscovered,
+      );
+    }
+    if (state.viewMode == EntityViewMode.schema) {
+      return EntitySchemaPanel(
+        entity: state.selectedEntity!,
+        discovered: state.isDiscovered,
+      );
+    }
+    return DataTablePanel(
+      entity: state.selectedEntity!,
+      rows: state.rows,
+      error: state.error,
+      onRefresh: () => context.read<DbBloc>().add(RefreshData()),
+      discovered: state.isDiscovered,
     );
   }
 }
@@ -137,20 +144,32 @@ class _WelcomeView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.storage_outlined, size: 72, color: theme.colorScheme.primary),
+            Icon(
+              Icons.storage_outlined,
+              size: 72,
+              color: theme.colorScheme.primary,
+            ),
             const SizedBox(height: 24),
-            Text('ObjectBox Viewer',
-                style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              'ObjectBox Viewer',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(height: 12),
             Text(
               'A visual tool for browsing ObjectBox Dart databases\non Windows, macOS, and Linux',
-              style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
               'objectbox-model.json is optional — the tool can discover entities directly from the database file.',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.primary,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
@@ -162,7 +181,9 @@ class _WelcomeView extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               'Select the directory containing your ObjectBox database files\n(data.mdb, lock.mdb)',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
             ),
           ],
@@ -181,9 +202,53 @@ class _WelcomeView extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
+  }
+}
+
+class _ResizableDivider extends StatefulWidget {
+  final ValueChanged<double> onDrag;
+
+  const _ResizableDivider({required this.onDrag});
+
+  @override
+  State<_ResizableDivider> createState() => _ResizableDividerState();
+}
+
+class _ResizableDividerState extends State<_ResizableDivider> {
+  bool _isHovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      onEnter: (_) => setState(() => _isHovering = true),
+      onExit: (_) => setState(() => _isHovering = false),
+      child: GestureDetector(
+        onPanUpdate: (details) => widget.onDrag(details.delta.dx),
+        behavior: HitTestBehavior.translucent,
+        child: Container(
+          width: 6,
+          color: Colors.transparent,
+          child: Center(
+            child: AnimatedContainer(
+              width: _isHovering ? 4 : 1,
+              height: double.infinity,
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeInOut,
+              color: _isHovering
+                  ? theme.colorScheme.primary.withAlpha(128)
+                  : theme.dividerColor,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

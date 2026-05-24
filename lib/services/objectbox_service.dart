@@ -9,9 +9,11 @@ import '../models/objectbox_model.dart';
 class ObjectBoxService {
   Future<ObjectBoxModel> openDatabase(String dbPath) async {
     final dir = Directory(dbPath);
-    if (!await dir.exists()) throw Exception('Database directory not found: $dbPath');
+    if (!await dir.exists())
+      throw Exception('Database directory not found: $dbPath');
     final dataFile = File(p.join(dbPath, 'data.mdb'));
-    if (!await dataFile.exists()) throw Exception('data.mdb not found in $dbPath');
+    if (!await dataFile.exists())
+      throw Exception('data.mdb not found in $dbPath');
     final bytes = await dataFile.readAsBytes();
     return _ObxParser(bytes).discoverModel();
   }
@@ -26,9 +28,13 @@ class ObjectBoxService {
     return info;
   }
 
-  Future<List<EntityRow>> readEntityData(String dbPath, EntityInfo entity) async {
+  Future<List<EntityRow>> readEntityData(
+    String dbPath,
+    EntityInfo entity,
+  ) async {
     final dataFile = File(p.join(dbPath, 'data.mdb'));
-    if (!await dataFile.exists()) throw Exception('data.mdb not found in $dbPath');
+    if (!await dataFile.exists())
+      throw Exception('data.mdb not found in $dbPath');
     final bytes = await dataFile.readAsBytes();
     return _ObxParser(bytes).readEntityData(entity);
   }
@@ -44,6 +50,7 @@ class _ObxParser {
   late int _pageSize;
   late int _numPages;
   late int _magicOffset;
+  late final Set<int> _freedPages;
 
   _ObxParser(Uint8List rawBytes) {
     _data = rawBytes;
@@ -61,6 +68,7 @@ class _ObxParser {
         : 4096;
     if (_pageSize < 512 || _pageSize > 65536) _pageSize = 4096;
     _numPages = _data.length ~/ _pageSize;
+    _freedPages = _collectFreedPages();
   }
 
   bool get isValid =>
@@ -76,22 +84,22 @@ class _ObxParser {
     if (schemaEntities.isNotEmpty) {
       return _buildModel(schemaEntities);
     }
-    
+
     // APPROACH: String search for entity names in data
     // In discovered mode, schema is stored as raw FlatBuffers
     // We search for known entity name patterns
-    
+
     final entities = <_ParsedEntity>[];
     final seenNames = <String>{};
 
     // Search for Entity FlatBuffers by looking for name strings
     // Common pattern: entity names end with "Entity" in Dart
     final candidateNames = _findEntityNames();
-    
+
     for (final name in candidateNames) {
       if (seenNames.contains(name)) continue;
       seenNames.add(name);
-      
+
       final entity = _parseEntityByName(name);
       if (entity != null) entities.add(entity);
     }
@@ -118,12 +126,14 @@ class _ObxParser {
       entityInfo.id = (e.id > 0 ? e.id : entityIdCounter).toString();
       entityInfo.properties.clear();
       for (final f in e.properties) {
-        entityInfo.properties.add(PropertyInfo(
-          id: f.propId.toString(),
-          name: f.name,
-          type: f.obxType,
-          flags: f.isId ? 1 : 0,
-        ));
+        entityInfo.properties.add(
+          PropertyInfo(
+            id: f.propId.toString(),
+            name: f.name,
+            type: f.obxType,
+            flags: f.isId ? 1 : 0,
+          ),
+        );
       }
       model.entities.add(entityInfo);
       entityIdCounter++;
@@ -150,18 +160,21 @@ class _ObxParser {
   List<String> _findEntityNames() {
     final names = <String>[];
     final found = <String>{};
-    
+
     // Search for strings ending with "Entity" (Dart convention)
     for (var i = 0; i < _data.length - 20; i++) {
-      if (_data[i] >= 65 && _data[i] <= 122) {  // Start of potential string
+      if (_data[i] >= 65 && _data[i] <= 122) {
+        // Start of potential string
         var end = i;
         while (end < _data.length && _data[end] >= 32 && _data[end] <= 122) {
           end++;
         }
-        
+
         if (end - i >= 5 && end - i <= 50) {
           final str = utf8.decode(_data.sublist(i, end), allowMalformed: true);
-          if (str.endsWith('Entity') && _isPrintable(str) && !found.contains(str)) {
+          if (str.endsWith('Entity') &&
+              _isPrintable(str) &&
+              !found.contains(str)) {
             found.add(str);
             names.add(str);
           }
@@ -169,7 +182,7 @@ class _ObxParser {
         i = end - 1;
       }
     }
-    
+
     return names;
   }
 
@@ -177,7 +190,7 @@ class _ObxParser {
     final entities = <_ParsedEntity>[];
     final seen = <int>{};
     var entityIdCounter = 1;
-    
+
     // Scan for vtable headers (size between 4-256, even)
     for (var i = 0; i < _data.length - 4; i++) {
       final vtableSize = _bd.getUint16(i, Endian.little);
@@ -201,32 +214,35 @@ class _ObxParser {
         }
       }
     }
-    
+
     return entities;
   }
 
   _ParsedEntity? _parseEntityByName(String name) {
     // Search for the name string in data
     final nameBytes = utf8.encode(name);
-    
+
     for (var i = 0; i < _data.length - nameBytes.length; i++) {
       var match = true;
       for (var j = 0; j < nameBytes.length; j++) {
-        if (_data[i + j] != nameBytes[j]) { match = false; break; }
+        if (_data[i + j] != nameBytes[j]) {
+          match = false;
+          break;
+        }
       }
-      
+
       if (match) {
         // Found the string, try to parse Entity FlatBuffer backwards
         return _tryParseEntityNearby(i);
       }
     }
-    
+
     return null;
   }
 
   _ParsedEntity? _tryParseEntityNearby(int strOffset) {
     var entityId = 0;
-    
+
     // Scan backwards from string to find vtable
     for (var j = strOffset; j > strOffset - 500 && j >= 0; j -= 4) {
       final vtableSOff = _bd.getInt32(j, Endian.little);
@@ -236,10 +252,13 @@ class _ObxParser {
           final vtableSize = _bd.getUint16(vtableStart, Endian.little);
           if (vtableSize >= 8 && vtableSize <= 128) {
             final numFields = (vtableSize - 4) ~/ 2;
-            
+
             // Try to read field[3] as name
             if (numFields > 3) {
-              final nameFieldOff = _bd.getUint16(vtableStart + 4 + 3 * 2, Endian.little);
+              final nameFieldOff = _bd.getUint16(
+                vtableStart + 4 + 3 * 2,
+                Endian.little,
+              );
               if (nameFieldOff > 0) {
                 final nameAddr = j + nameFieldOff;
                 if (nameAddr + 4 <= _data.length) {
@@ -249,19 +268,27 @@ class _ObxParser {
                     if (strAddr + 4 <= _data.length) {
                       final strLen = _bd.getUint32(strAddr, Endian.little);
                       if (strLen > 0 && strLen < 100) {
-                        final name = utf8.decode(_data.sublist(strAddr + 4, strAddr + 4 + strLen), allowMalformed: true);
+                        final name = utf8.decode(
+                          _data.sublist(strAddr + 4, strAddr + 4 + strLen),
+                          allowMalformed: true,
+                        );
                         if (_isPrintable(name)) {
                           // Successfully parsed entity!
                           final props = <_ParsedProperty>[];
-                          
+
                           // Try to read properties from field[4]
                           if (numFields > 4) {
-                            final propsFieldOff = _bd.getUint16(vtableStart + 4 + 4 * 2, Endian.little);
+                            final propsFieldOff = _bd.getUint16(
+                              vtableStart + 4 + 4 * 2,
+                              Endian.little,
+                            );
                             if (propsFieldOff > 0) {
-                              props.addAll(_parsePropertiesVector(j + propsFieldOff));
+                              props.addAll(
+                                _parsePropertiesVector(j + propsFieldOff),
+                              );
                             }
                           }
-                          
+
                           return _ParsedEntity(entityId, name, props);
                         }
                       }
@@ -274,27 +301,30 @@ class _ObxParser {
         }
       }
     }
-    
+
     return null;
   }
 
   _ParsedEntity? _tryParseEntityAt(int tableStart, int entityId) {
     if (tableStart + 4 > _data.length) return null;
-    
+
     final vtableSOff = _bd.getInt32(tableStart, Endian.little);
     if (vtableSOff <= 0 || vtableSOff > 256) return null;
-    
+
     final vtableStart = tableStart - vtableSOff;
     if (vtableStart < 0 || vtableStart + 2 > _data.length) return null;
-    
+
     final vtableSize = _bd.getUint16(vtableStart, Endian.little);
     if (vtableSize < 8 || vtableSize > 128) return null;
-    
+
     final numFields = (vtableSize - 4) ~/ 2;
-    
+
     // Try field[3] for name
     if (numFields > 3) {
-      final nameFieldOff = _bd.getUint16(vtableStart + 4 + 3 * 2, Endian.little);
+      final nameFieldOff = _bd.getUint16(
+        vtableStart + 4 + 3 * 2,
+        Endian.little,
+      );
       if (nameFieldOff > 0) {
         final nameAddr = tableStart + nameFieldOff;
         if (nameAddr + 4 <= _data.length) {
@@ -303,18 +333,28 @@ class _ObxParser {
             final strAddr = nameAddr + strOff;
             if (strAddr + 4 <= _data.length) {
               final strLen = _bd.getUint32(strAddr, Endian.little);
-              if (strLen > 0 && strLen < 100 && strAddr + 4 + strLen <= _data.length) {
-                final name = utf8.decode(_data.sublist(strAddr + 4, strAddr + 4 + strLen), allowMalformed: true);
+              if (strLen > 0 &&
+                  strLen < 100 &&
+                  strAddr + 4 + strLen <= _data.length) {
+                final name = utf8.decode(
+                  _data.sublist(strAddr + 4, strAddr + 4 + strLen),
+                  allowMalformed: true,
+                );
                 if (_isPrintable(name)) {
                   final props = <_ParsedProperty>[];
-                  
+
                   if (numFields > 4) {
-                    final propsFieldOff = _bd.getUint16(vtableStart + 4 + 4 * 2, Endian.little);
+                    final propsFieldOff = _bd.getUint16(
+                      vtableStart + 4 + 4 * 2,
+                      Endian.little,
+                    );
                     if (propsFieldOff > 0) {
-                      props.addAll(_parsePropertiesVector(tableStart + propsFieldOff));
+                      props.addAll(
+                        _parsePropertiesVector(tableStart + propsFieldOff),
+                      );
                     }
                   }
-                  
+
                   return _ParsedEntity(entityId, name, props);
                 }
               }
@@ -323,31 +363,47 @@ class _ObxParser {
         }
       }
     }
-    
+
     return null;
   }
 
   // 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸?Entity Data 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑?
   List<EntityRow> readEntityData(EntityInfo entity) {
     if (!isValid) return [];
-    final rowMap = <int, EntityRow>{};
+    // LMDB B+tree uses copy-on-write, so the same record can appear on
+    // multiple pages. We keep only the version from the highest page number
+    // (most recent write), keyed by objectId.
+    final rowMap = <int, (int pgno, EntityRow row)>{};
 
-    final entityId = int.tryParse(entity.id);
     for (var pgno = 0; pgno < _numPages; pgno++) {
+      if (_freedPages.contains(pgno)) continue;
       final page = _readPage(pgno);
       if (page == null) continue;
 
       for (final entry in page.entries) {
         if (entry.isSchema) continue;
-        if (entityId != null && entry.entityId != entityId) continue;
 
         final row = _parseDataEntry(entry, entity);
         if (row == null) continue;
-        rowMap[row.id] = row;
+
+        // If parsed row has extra discovered fields, it doesn't match this entity schema
+        final hasExtraFields = row.values.keys.any(
+          (k) => k.startsWith('field_'),
+        );
+        if (hasExtraFields) continue;
+
+        // Skip invalid/empty entries with objectId == 0
+        if (row.id == 0) continue;
+
+        // Keep the version from the highest page number (most recent)
+        final existing = rowMap[row.id];
+        if (existing == null || pgno > existing.$1) {
+          rowMap[row.id] = (pgno, row);
+        }
       }
     }
-    
-    final rows = rowMap.values.toList();
+
+    final rows = rowMap.values.map((e) => e.$2).toList();
     rows.sort((a, b) => a.id.compareTo(b.id));
     return rows;
   }
@@ -379,12 +435,121 @@ class _ObxParser {
     final entries = <_EntryData>[];
     for (var i = 0; i < uniquePtrs.length; i++) {
       final entryStart = uniquePtrs[i];
-      final entryEnd = (i + 1 < uniquePtrs.length) ? uniquePtrs[i + 1] : _pageSize;
+      final entryEnd = (i + 1 < uniquePtrs.length)
+          ? uniquePtrs[i + 1]
+          : _pageSize;
       final entryLen = entryEnd - entryStart;
       if (entryLen < 16) continue;
       entries.add(_EntryData(off, entryStart, entryLen, _data, _bd));
     }
     return _PageData(pgno, entries);
+  }
+
+  Set<int> _collectFreedPages() {
+    final freed = <int>{};
+    if (_numPages < 2) return freed;
+
+    // Read both meta pages and pick the active one (higher txnid)
+    final meta0Off = 0;
+    final meta1Off = _pageSize;
+
+    int activeMetaOff;
+    final txnid0 = _readMetaTxnId(meta0Off);
+    final txnid1 = _readMetaTxnId(meta1Off);
+    if (txnid1 > txnid0) {
+      activeMetaOff = meta1Off;
+    } else {
+      activeMetaOff = meta0Off;
+    }
+
+    // MDB_meta::mm_dbs[0] is freeDB, md_root is at offset 40 within MDB_db
+    final freeDbOff = activeMetaOff + 16 + 24;
+    final freeRoot = _bd.getUint64(freeDbOff + 40, Endian.little);
+    if (freeRoot <= 0 || freeRoot >= _numPages) return freed;
+
+    _traverseFreeDb(freeRoot, freed);
+    return freed;
+  }
+
+  int _readMetaTxnId(int metaPageOff) {
+    // MDB_meta::mm_txnid is at offset 24+48+48+8 = 128 from meta page start
+    final txnidOff = metaPageOff + 16 + 24 + 48 + 48 + 8;
+    if (txnidOff + 8 > _data.length) return 0;
+    return _bd.getUint64(txnidOff, Endian.little);
+  }
+
+  void _traverseFreeDb(int pgno, Set<int> freed) {
+    final off = pgno * _pageSize;
+    if (off + 16 > _data.length) return;
+
+    final type = _bd.getUint16(off + 10, Endian.little);
+
+    if (type == 2) {
+      // P_LEAF — parse entries directly
+      _parseFreeDbLeafPage(pgno, freed);
+    } else if (type == 1) {
+      // P_BRANCH — read child page numbers from nodes
+      final lower = _bd.getUint16(off + 12, Endian.little);
+      final numPtrs = (lower - 16) ~/ 2;
+      for (var i = 0; i < numPtrs; i++) {
+        final ptr = _bd.getUint16(off + 16 + i * 2, Endian.little);
+        if (ptr <= 0 || ptr >= _pageSize) continue;
+        final entryEnd = (i + 1 < numPtrs)
+            ? _bd.getUint16(off + 16 + (i + 1) * 2, Endian.little)
+            : _pageSize;
+        final entryLen = entryEnd - ptr;
+        if (entryLen >= 8) {
+          // Child pgno is the last 8 bytes of the branch node
+          final childPgno = _bd.getUint64(off + ptr + entryLen - 8, Endian.little);
+          if (childPgno > 0 && childPgno < _numPages && !freed.contains(childPgno)) {
+            _traverseFreeDb(childPgno, freed);
+          }
+        }
+      }
+    }
+  }
+
+  void _parseFreeDbLeafPage(int pgno, Set<int> freed) {
+    final off = pgno * _pageSize;
+    final lower = _bd.getUint16(off + 12, Endian.little);
+    if (lower < 16 || lower > _pageSize) return;
+
+    final numPtrs = (lower - 16) ~/ 2;
+    final ptrs = <int>[];
+    for (var i = 0; i < numPtrs && i < 500; i++) {
+      final ptr = _bd.getUint16(off + 16 + i * 2, Endian.little);
+      if (ptr > 0 && ptr < _pageSize) ptrs.add(ptr);
+    }
+    if (ptrs.isEmpty) return;
+    ptrs.sort();
+    final uniquePtrs = <int>[ptrs.first];
+    for (var i = 1; i < ptrs.length; i++) {
+      if (ptrs[i] != uniquePtrs.last) uniquePtrs.add(ptrs[i]);
+    }
+
+    for (var i = 0; i < uniquePtrs.length; i++) {
+      final entryStart = uniquePtrs[i];
+      final entryEnd = (i + 1 < uniquePtrs.length)
+          ? uniquePtrs[i + 1]
+          : _pageSize;
+      final entryLen = entryEnd - entryStart;
+      if (entryLen < 16) continue;
+
+      final valLen = entryLen - 16;
+      if (valLen < 8) continue;
+
+      final valStart = off + entryStart + 16;
+      // FreeDB value format: [numPages (uint64), pgno1 (uint64), pgno2, ...]
+      final numPages = _bd.getUint64(valStart, Endian.little);
+      for (var j = 0; j < numPages; j++) {
+        final pgnoOffset = valStart + 8 + j * 8;
+        if (pgnoOffset + 8 > off + entryEnd) break;
+        final freedPgno = _bd.getUint64(pgnoOffset, Endian.little);
+        if (freedPgno > 0 && freedPgno < _numPages) {
+          freed.add(freedPgno);
+        }
+      }
+    }
   }
 
   // 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸?Schema Parsing 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜?  // All address parameters are ABSOLUTE offsets into _data/_bd.
@@ -409,7 +574,8 @@ class _ObxParser {
       return null;
     }
 
-    if (vtableStart < valStart || vtableStart + 4 > valStart + valLen) return null;
+    if (vtableStart < valStart || vtableStart + 4 > valStart + valLen)
+      return null;
 
     final vtableSize = _bd.getUint16(vtableStart, Endian.little);
     if (vtableSize < 4 || vtableSize > 256) return null;
@@ -418,24 +584,34 @@ class _ObxParser {
     String? entityName;
     List<_ParsedProperty> properties = [];
 
-    // Schema entries in ObjectBox DBs use field[1]/field[2] for name/properties.
-    // Some raw schema fragments found by string scanning use field[3]/field[4].
-    for (final nameFieldIndex in const [1, 3]) {
+    // ObjectBox Entity FlatBuffer field layout (from actual data analysis):
+    //   Modern schema: field[3] = name, field[4] = properties vector
+    //   Older schema:  field[1] = name, field[2] = properties vector
+    // Try modern layout first (more properties = better match).
+    for (final nameFieldIndex in const [3, 1]) {
       if (entityName != null && entityName.isNotEmpty) break;
       if (numFields <= nameFieldIndex) continue;
-      final nameFieldOff =
-          _bd.getUint16(vtableStart + 4 + nameFieldIndex * 2, Endian.little);
+      final nameFieldOff = _bd.getUint16(
+        vtableStart + 4 + nameFieldIndex * 2,
+        Endian.little,
+      );
       if (nameFieldOff > 0) {
-        final name = _readFbString(valStart, tableStart + nameFieldOff, valStart + valLen);
+        final name = _readFbString(
+          valStart,
+          tableStart + nameFieldOff,
+          valStart + valLen,
+        );
         if (name != null && name.isNotEmpty) entityName = name;
       }
     }
 
-    for (final propsFieldIndex in const [2, 4]) {
+    for (final propsFieldIndex in const [4, 2]) {
       if (properties.isNotEmpty) break;
       if (numFields <= propsFieldIndex) continue;
-      final propsFieldOff =
-          _bd.getUint16(vtableStart + 4 + propsFieldIndex * 2, Endian.little);
+      final propsFieldOff = _bd.getUint16(
+        vtableStart + 4 + propsFieldIndex * 2,
+        Endian.little,
+      );
       if (propsFieldOff > 0) {
         properties = _parsePropertiesVector(tableStart + propsFieldOff);
       }
@@ -445,8 +621,14 @@ class _ObxParser {
       for (var fi = 0; fi < numFields; fi++) {
         final fieldOff = _bd.getUint16(vtableStart + 4 + fi * 2, Endian.little);
         if (fieldOff == 0) continue;
-        final candidate = _readFbString(valStart, tableStart + fieldOff, valStart + valLen);
-        if (candidate != null && candidate.length > 2 && _isPrintable(candidate)) {
+        final candidate = _readFbString(
+          valStart,
+          tableStart + fieldOff,
+          valStart + valLen,
+        );
+        if (candidate != null &&
+            candidate.length > 2 &&
+            _isPrintable(candidate)) {
           entityName = candidate;
           break;
         }
@@ -496,8 +678,8 @@ class _ObxParser {
     if (tableStart + 4 > _data.length) return null;
 
     final vtableSOff = _bd.getInt32(tableStart, Endian.little);
-    if (vtableSOff <= 0) return null;
-
+    if (vtableSOff == 0) return null;
+    // FlatBuffer allows negative vtableSOff (vtable after table in memory)
     final vtableStart = tableStart - vtableSOff;
     if (vtableStart < 0 || vtableStart + 2 > _data.length) return null;
 
@@ -509,26 +691,57 @@ class _ObxParser {
     int obxType = 0;
     int flags = 0;
 
-    if (numFields > 0) {
-      final nameOff = _bd.getUint16(vtableStart + 4, Endian.little);
+    // ObjectBox Property FlatBuffer field layout (from actual data analysis):
+    //   Modern schema: field[1] = id, field[6] = name, field[7] = type
+    //   Older schema:  field[0] = id, field[1] = name, field[2] = type
+    // Try modern layout first.
+
+    // Try field[6] for name (modern), then field[1] (older)
+    if (numFields > 6) {
+      final nameOff = _bd.getUint16(vtableStart + 4 + 6 * 2, Endian.little);
       if (nameOff > 0) {
         final nameFieldAddr = tableStart + nameOff;
         name = _readFbStringInline(nameFieldAddr);
       }
     }
-
-    if (numFields > 1) {
-      final typeOff = _bd.getUint16(vtableStart + 4 + 1 * 2, Endian.little);
-      if (typeOff > 0) {
-        final typeFieldAddr = tableStart + typeOff;
-        if (typeFieldAddr + 4 <= _data.length) {
-          obxType = _bd.getInt32(typeFieldAddr, Endian.little);
+    if (name == null || name.isEmpty) {
+      if (numFields > 1) {
+        final nameOff = _bd.getUint16(vtableStart + 4 + 1 * 2, Endian.little);
+        if (nameOff > 0) {
+          final nameFieldAddr = tableStart + nameOff;
+          name = _readFbStringInline(nameFieldAddr);
         }
       }
     }
 
-    if (numFields > 2) {
-      final flagsOff = _bd.getUint16(vtableStart + 4 + 2 * 2, Endian.little);
+    // Try field[7] for type (modern), then field[2] (older)
+    if (numFields > 7) {
+      final typeOff = _bd.getUint16(vtableStart + 4 + 7 * 2, Endian.little);
+      if (typeOff > 0) {
+        final typeFieldAddr = tableStart + typeOff;
+        if (typeFieldAddr < _data.length) {
+          // Type is stored as the low byte of a uint64 value
+          obxType = _data[typeFieldAddr];
+        }
+      }
+    }
+    if (obxType == 0 && numFields > 2) {
+      final typeOff = _bd.getUint16(vtableStart + 4 + 2 * 2, Endian.little);
+      if (typeOff > 0) {
+        final typeFieldAddr = tableStart + typeOff;
+        if (typeFieldAddr + 4 <= _data.length) {
+          final candidateType = _bd.getInt32(typeFieldAddr, Endian.little);
+          // Only accept if it looks like a valid OBXPropertyType (1-15)
+          if (candidateType >= 1 && candidateType <= 15) {
+            obxType = candidateType;
+          }
+        }
+      }
+    }
+
+    // Try field[3] for flags (older schema)
+    if (numFields > 3) {
+      final flagsOff = _bd.getUint16(vtableStart + 4 + 3 * 2, Endian.little);
       if (flagsOff > 0) {
         final flagsFieldAddr = tableStart + flagsOff;
         if (flagsFieldAddr + 4 <= _data.length) {
@@ -556,7 +769,9 @@ class _ObxParser {
     final strLen = _bd.getUint32(strAddr, Endian.little);
     if (strLen <= 0 || strLen > 1000) return null;
     if (strAddr + 4 + strLen > _data.length) return null;
-    return String.fromCharCodes(_data.sublist(strAddr + 4, strAddr + 4 + strLen));
+    return String.fromCharCodes(
+      _data.sublist(strAddr + 4, strAddr + 4 + strLen),
+    );
   }
 
   // [valStart]=absolute start of value, [fieldAddr]=absolute address of uint32 string offset
@@ -568,9 +783,13 @@ class _ObxParser {
     final strAddr = fieldAddr + strOff;
     if (strAddr < valStart || strAddr + 4 > valEnd) return null;
     final strLen = _bd.getUint32(strAddr, Endian.little);
-    if (strLen <= 0 || strLen > 10000 || strAddr + 4 + strLen > valEnd) return null;
+    if (strLen <= 0 || strLen > 10000 || strAddr + 4 + strLen > valEnd)
+      return null;
     try {
-      final str = utf8.decode(_data.sublist(strAddr + 4, strAddr + 4 + strLen), allowMalformed: true);
+      final str = utf8.decode(
+        _data.sublist(strAddr + 4, strAddr + 4 + strLen),
+        allowMalformed: true,
+      );
       return str.isNotEmpty ? str : null;
     } catch (_) {
       return null;
@@ -598,37 +817,54 @@ class _ObxParser {
     if (tableStart + 4 > valStart + valLen) return null;
 
     final vtableSOff = _bd.getInt32(tableStart, Endian.little);
-    if (vtableSOff <= 0) return null;
-
+    if (vtableSOff == 0) return null;
+    // FlatBuffer allows negative vtableSOff (vtable after table in memory)
     final vtableStart = tableStart - vtableSOff;
-    if (vtableStart < valStart || vtableStart + 4 > valStart + valLen) return null;
+    if (vtableStart < 0 || vtableStart + 4 > valStart + valLen) return null;
 
     final vtableSize = _bd.getUint16(vtableStart, Endian.little);
     if (vtableSize < 4 || vtableSize > 256) return null;
     final numFields = (vtableSize - 4) ~/ 2;
 
-    final values = <String, dynamic>{'id': entry.objectId};
-    final props = entity.properties;
+    // Read the object ID from FlatBuffer field[0] (int64).
+    // This is the actual ObjectBox object ID, not the LMDB key bytes.
+    final valEnd = valStart + valLen;
+    int objectId = entry.objectId;
+    if (numFields > 0) {
+      final idFieldOff = _bd.getUint16(vtableStart + 4, Endian.little);
+      if (idFieldOff > 0) {
+        final idFieldAddr = tableStart + idFieldOff;
+        if (idFieldAddr + 8 <= valEnd) {
+          objectId = _bd.getInt64(idFieldAddr, Endian.little);
+          entry.objectId = objectId;
+        }
+      }
+    }
+
+    final values = <String, dynamic>{'id': objectId};
+    final props = List<PropertyInfo>.from(entity.properties);
 
     for (var fi = 0; fi < numFields; fi++) {
       final fieldOff = _bd.getUint16(vtableStart + 4 + fi * 2, Endian.little);
       if (fieldOff == 0) continue;
 
       final fieldAddr = tableStart + fieldOff;
-      if (fieldAddr + 8 > valStart + valLen) continue;
+      if (fieldAddr + 1 > valEnd) continue; // at least 1 byte needed
 
       final PropertyInfo prop;
       if (fi < props.length) {
         prop = props[fi];
-        if (prop.isId) continue;
+        if (prop.isId) continue; // id already extracted from key
       } else {
         while (props.length <= fi) {
-          props.add(PropertyInfo.discovered(props.length, PropertyType.unknown));
+          props.add(
+            PropertyInfo.discovered(props.length, PropertyType.unknown),
+          );
         }
         prop = props[fi];
       }
 
-      final val = _readFieldValue(valStart, fieldAddr, valStart + valLen);
+      final val = _readFieldValue(valStart, fieldAddr, valEnd, prop.type);
       if (val != null) {
         values[prop.name] = val;
         if (prop.type == PropertyType.unknown.value) {
@@ -648,56 +884,94 @@ class _ObxParser {
     return PropertyType.unknown;
   }
 
-  dynamic _readFieldValue(int valStart, int addr, int valEnd) {
-    // 1) Try string
+  /// Read a field value using the known [propertyType] from schema.
+  /// When the type is unknown (discovered mode), falls back to heuristics.
+  dynamic _readFieldValue(
+    int valStart,
+    int addr,
+    int valEnd, [
+    int? propertyType,
+  ]) {
+    // ObjectBox PropertyType: 1=bool, 2=byte, 3=short, 4=char, 5=int,
+    // 6=long, 7=float, 8=double, 9=string, 10=date, 11=dateNano, 12=relation
+    final pt = propertyType ?? 0;
+    switch (pt) {
+      case 1: // bool
+        if (addr + 1 > valEnd) return null;
+        return _data[addr] != 0;
+      case 2: // byte
+        if (addr + 1 > valEnd) return null;
+        return _data[addr];
+      case 3: // short (int16)
+        if (addr + 2 > valEnd) return null;
+        return _bd.getInt16(addr, Endian.little);
+      case 4: // char
+        if (addr + 1 > valEnd) return null;
+        return _data[addr];
+      case 5: // int (int32)
+        if (addr + 4 > valEnd) return null;
+        return _bd.getInt32(addr, Endian.little);
+      case 6: // long (int64)
+        if (addr + 8 > valEnd) return null;
+        return _bd.getInt64(addr, Endian.little);
+      case 7: // float
+        if (addr + 4 > valEnd) return null;
+        return _bd.getFloat32(addr, Endian.little);
+      case 8: // double
+        if (addr + 8 > valEnd) return null;
+        return _bd.getFloat64(addr, Endian.little);
+      case 9: // string
+        return _readFbString(valStart, addr, valEnd);
+      case 10: // date (ms since epoch, int64)
+        if (addr + 8 > valEnd) return null;
+        return _bd.getInt64(addr, Endian.little);
+      case 11: // dateNano (ns since epoch, int64)
+        if (addr + 8 > valEnd) return null;
+        return _bd.getInt64(addr, Endian.little);
+      case 12: // relation (int64)
+        if (addr + 8 > valEnd) return null;
+        return _bd.getInt64(addr, Endian.little);
+    }
+
+    // Unknown type – heuristic fallback
+    // 1) Try long (int64) — most common scalar in ObjectBox
     try {
-      final strOff = _bd.getUint32(addr, Endian.little);
-      if (strOff >= 4) {
-        final strAddr = addr + strOff;
-        if (strAddr + 4 <= valEnd) {
-          final strLen = _bd.getUint32(strAddr, Endian.little);
-          if (strLen > 0 && strLen < 10000 && strAddr + 4 + strLen <= valEnd) {
-            final str = utf8.decode(_data.sublist(strAddr + 4, strAddr + 4 + strLen), allowMalformed: true);
-            if (str.isNotEmpty) return str;
+      if (addr + 8 <= valEnd) {
+        final v = _bd.getInt64(addr, Endian.little);
+        if (v != 0 && v != 0x7FFFFFFFFFFFFFFF && v != -1) {
+          if (v > 1577836800000 && v < 1893456000000) {
+            return v;
           }
+          return v;
         }
       }
     } catch (_) {}
 
-    // 2) Try bool
+    // 2) Try string
     try {
-      final b = _data[addr];
-      if (b <= 1) {
-        if (addr + 1 < _data.length && _data[addr + 1] == 0) {
-          return b == 1;
-        }
-      }
+      final str = _readFbString(valStart, addr, valEnd);
+      if (str != null && str.isNotEmpty) return str;
     } catch (_) {}
 
-    // 3) Try int64 / timestamp
+    // 3) Try double
     try {
-      final v = _bd.getInt64(addr, Endian.little);
-      if (v > 0 && v < 0x7FFFFFFFFFFFFFFF) {
-        if (v > 1577836800000000000 && v < 1893456000000000000) {
-          return DateTime.fromMicrosecondsSinceEpoch(v ~/ 1000).toIso8601String();
-        }
-        if (v > 1577836800000 && v < 1893456000000) {
-          return DateTime.fromMillisecondsSinceEpoch(v).toIso8601String();
-        }
-        return v;
+      if (addr + 8 <= valEnd) {
+        final v = _bd.getFloat64(addr, Endian.little);
+        if (v.isFinite && v.abs() > 1e-10 && v.abs() < 1e20) return v;
       }
     } catch (_) {}
 
     // 4) Try int32
     try {
-      final v = _bd.getInt32(addr, Endian.little);
-      return v;
+      if (addr + 4 <= valEnd) return _bd.getInt32(addr, Endian.little);
     } catch (_) {}
 
-    // 5) Try double
+    // 5) Try bool
     try {
-      final v = _bd.getFloat64(addr, Endian.little);
-      if (v.isFinite && v.abs() > 1e-10 && v.abs() < 1e20) return v;
+      if (addr + 1 <= valEnd) {
+        final b = _data[addr];
+        if (b <= 1) return b == 1;
+      }
     } catch (_) {}
 
     return null;
@@ -705,7 +979,9 @@ class _ObxParser {
 
   // 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸?Helpers 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑?
   bool _isPrintable(String s) {
-    return s.runes.every((r) => (r >= 0x20 && r <= 0x7E) || (r >= 0x4E00 && r <= 0x9FFF));
+    return s.runes.every(
+      (r) => (r >= 0x20 && r <= 0x7E) || (r >= 0x4E00 && r <= 0x9FFF),
+    );
   }
 
   List<String> _extractPrintableStrings(int start, int end, int minLen) {
@@ -719,7 +995,8 @@ class _ObxParser {
         if (buf.length >= minLen) {
           try {
             final s = utf8.decode(buf, allowMalformed: true);
-            if (s.trim().isNotEmpty && _isMostlyPrintable(s)) strings.add(s.trim());
+            if (s.trim().isNotEmpty && _isMostlyPrintable(s))
+              strings.add(s.trim());
           } catch (_) {}
         }
         buf.clear();
@@ -736,7 +1013,9 @@ class _ObxParser {
 
   bool _isMostlyPrintable(String s) {
     if (s.isEmpty) return false;
-    final printable = s.runes.where((r) => r >= 0x20 && r <= 0x7E || r >= 0x4E00 && r <= 0x9FFF).length;
+    final printable = s.runes
+        .where((r) => r >= 0x20 && r <= 0x7E || r >= 0x4E00 && r <= 0x9FFF)
+        .length;
     return printable >= s.length * 0.4;
   }
 }
@@ -756,17 +1035,41 @@ class _EntryData {
   final Uint8List _data;
   final ByteData _bd;
 
-  _EntryData(this.pageOffset, this.entryOffset, this.length, this._data, this._bd);
+  _EntryData(
+    this.pageOffset,
+    this.entryOffset,
+    this.length,
+    this._data,
+    this._bd,
+  );
 
   int get absEntry => pageOffset + entryOffset;
 
   int get entityId => _data[absEntry + 15];
 
-  int get objectId => absEntry;
+  /// ObjectBox object ID: decoded from the FlatBuffer value data.
+  ///
+  /// The object ID is stored as field[0] (int64) inside the FlatBuffer value,
+  /// NOT in the LMDB key. The key bytes contain ObjectBox internal metadata
+  /// (cursor position, put flags) rather than the logical object ID.
+  int get objectId => _objectId ?? 0;
+
+  int? _objectId;
+
+  /// Set the objectId after parsing the FlatBuffer value.
+  set objectId(int value) => _objectId = value;
 
   bool get isSchema {
-    // Schema entry: key bytes 8-14 are zero and the value is a FlatBuffer.
-    // Byte 15 stores the real entity ID and must not be required to be zero.
+    // ObjectBox LMDB key layout (16 bytes):
+    //   bytes 0-1:  key prefix / flags
+    //   bytes 2-7:  object ID (for data entries)
+    //   bytes 8-14: padding / metadata
+    //   byte 15:    entity ID
+    //
+    // Schema entries are stored in the special "0" sub-DB where
+    // bytes 8-14 (padding) are all zero. Data entries always have
+    // non-zero bytes in 8-14 (they contain put flags/size info like
+    // byte[8]=0x18). This is the reliable way to distinguish them.
     for (var i = 8; i <= 14; i++) {
       if (_data[absEntry + i] != 0) return false;
     }
@@ -796,5 +1099,10 @@ class _ParsedProperty {
   final String name;
   final int obxType;
   final bool isId;
-  _ParsedProperty({required this.propId, required this.name, required this.obxType, required this.isId});
+  _ParsedProperty({
+    required this.propId,
+    required this.name,
+    required this.obxType,
+    required this.isId,
+  });
 }
