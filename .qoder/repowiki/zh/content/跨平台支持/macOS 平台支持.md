@@ -3,6 +3,7 @@
 <cite>
 **本文引用的文件**
 - [Podfile](file://macos/Podfile)
+- [Podfile.lock](file://macos/Podfile.lock)
 - [AppDelegate.swift](file://macos/Runner/AppDelegate.swift)
 - [MainFlutterWindow.swift](file://macos/Runner/MainFlutterWindow.swift)
 - [Info.plist](file://macos/Runner/Info.plist)
@@ -16,6 +17,13 @@
 - [Release.xcconfig](file://macos/Runner/Configs/Release.xcconfig)
 - [main.dart](file://lib/main.dart)
 </cite>
+
+## 更新摘要
+**所做变更**
+- 新增 CocoaPods 依赖管理章节，详细说明 Podfile 和 Podfile.lock 的配置
+- 更新权限系统章节，增加 DebugProfile 和 Release 配置的权限文件分析
+- 补充 ObjectBox 相关依赖的集成说明
+- 更新构建配置章节，包含新的 entitlements 文件处理
 
 ## 目录
 1. [简介](#简介)
@@ -53,11 +61,11 @@ C --> E["主窗口<br/>MainFlutterWindow.swift"]
 C --> F["菜单与委托绑定<br/>MainMenu.xib"]
 C --> G["Info.plist"]
 C --> H["权限与沙盒<br/>DebugProfile.entitlements / Release.entitlements"]
-C --> I["CocoaPods 依赖<br/>Podfile"]
+C --> I["CocoaPods 依赖<br/>Podfile / Podfile.lock"]
 end
 ```
 
-图表来源
+**图表来源**
 - [main.dart](file://lib/main.dart)
 - [GeneratedPluginRegistrant.swift](file://macos/Flutter/GeneratedPluginRegistrant.swift)
 - [AppDelegate.swift](file://macos/Runner/AppDelegate.swift)
@@ -67,10 +75,12 @@ end
 - [DebugProfile.entitlements](file://macos/Runner/DebugProfile.entitlements)
 - [Release.entitlements](file://macos/Runner/Release.entitlements)
 - [Podfile](file://macos/Podfile)
+- [Podfile.lock](file://macos/Podfile.lock)
 
-章节来源
+**章节来源**
 - [pubspec.yaml](file://pubspec.yaml)
 - [Podfile](file://macos/Podfile)
+- [Podfile.lock](file://macos/Podfile.lock)
 - [AppDelegate.swift](file://macos/Runner/AppDelegate.swift)
 - [MainFlutterWindow.swift](file://macos/Runner/MainFlutterWindow.swift)
 - [Info.plist](file://macos/Runner/Info.plist)
@@ -91,7 +101,7 @@ end
 - 配置与签名：Info.plist 定义应用元数据；DebugProfile.entitlements/Release.entitlements 定义沙盒与网络/文件访问权限。
 - CocoaPods 依赖：Podfile 管理 Flutter macOS 依赖与测试目标。
 
-章节来源
+**章节来源**
 - [main.dart](file://lib/main.dart)
 - [AppDelegate.swift](file://macos/Runner/AppDelegate.swift)
 - [MainFlutterWindow.swift](file://macos/Runner/MainFlutterWindow.swift)
@@ -116,7 +126,7 @@ participant Reg as "GeneratedPluginRegistrant.swift"
 participant Menu as "MainMenu.xib"
 User->>App : 启动应用
 App->>Bloc : 初始化状态管理
-User->>Menu : 点击“打开数据库”
+User->>Menu : 点击"打开数据库"
 Menu->>Delegate : 触发委托方法
 Delegate->>Window : 创建/显示主窗口
 Window->>Reg : 注册插件
@@ -125,7 +135,7 @@ Window-->>App : 渲染界面
 App->>Bloc : 打开数据库
 ```
 
-图表来源
+**图表来源**
 - [main.dart](file://lib/main.dart)
 - [AppDelegate.swift](file://macos/Runner/AppDelegate.swift)
 - [MainFlutterWindow.swift](file://macos/Runner/MainFlutterWindow.swift)
@@ -139,21 +149,25 @@ App->>Bloc : 打开数据库
 - 依赖安装：通过 flutter_install_all_macos_pods 安装 Flutter 与第三方插件依赖。
 - 测试目标：RunnerTests 继承搜索路径，便于单元测试。
 - 工作空间：Runner.xcworkspace 包含 Runner.xcodeproj 与 Pods.xcodeproj，确保依赖与工程协同。
+- 依赖锁定：Podfile.lock 记录了具体的依赖版本，包括 ObjectBox 5.3.0-beta.4 和相关插件。
 
 ```mermaid
 flowchart TD
 Start(["执行 pod install"]) --> Setup["读取 Flutter 生成的构建设置"]
 Setup --> Install["安装 Flutter macOS 依赖"]
-Install --> Tests["配置 RunnerTests 搜索路径"]
+Install --> Pods["安装第三方依赖<br/>ObjectBox, file_picker 等"]
+Pods --> Tests["配置 RunnerTests 搜索路径"]
 Tests --> Post["应用附加构建设置"]
 Post --> Done(["完成"])
 ```
 
-图表来源
+**图表来源**
 - [Podfile](file://macos/Podfile)
+- [Podfile.lock](file://macos/Podfile.lock)
 
-章节来源
+**章节来源**
 - [Podfile](file://macos/Podfile)
+- [Podfile.lock](file://macos/Podfile.lock)
 - [Runner.xcworkspace/contents.xcworkspacedata](file://macos/Runner.xcworkspace/contents.xcworkspacedata)
 
 ### Swift 应用委托与 macOS 生命周期
@@ -171,11 +185,11 @@ class NSApplication
 AppDelegate --> NSApplication : "响应生命周期事件"
 ```
 
-图表来源
+**图表来源**
 - [AppDelegate.swift](file://macos/Runner/AppDelegate.swift)
 - [MainMenu.xib](file://macos/Runner/Base.lproj/MainMenu.xib)
 
-章节来源
+**章节来源**
 - [AppDelegate.swift](file://macos/Runner/AppDelegate.swift)
 - [MainMenu.xib](file://macos/Runner/Base.lproj/MainMenu.xib)
 
@@ -195,12 +209,12 @@ Window->>Reg : 注册插件
 Reg-->>Window : 插件已注册
 ```
 
-图表来源
+**图表来源**
 - [MainFlutterWindow.swift](file://macos/Runner/MainFlutterWindow.swift)
 - [GeneratedPluginRegistrant.swift](file://macos/Flutter/GeneratedPluginRegistrant.swift)
 - [main.dart](file://lib/main.dart)
 
-章节来源
+**章节来源**
 - [GeneratedPluginRegistrant.swift](file://macos/Flutter/GeneratedPluginRegistrant.swift)
 - [MainFlutterWindow.swift](file://macos/Runner/MainFlutterWindow.swift)
 - [main.dart](file://lib/main.dart)
@@ -210,7 +224,7 @@ Reg-->>Window : 插件已注册
 - 版本信息：短版本号与版本号由 Flutter 构建变量提供。
 - 应用签名：在 Xcode 中通过 Runner 目标设置 Team、Signing Certificate 与 Provisioning Profile；Entitlements 文件控制沙盒与文件访问权限。
 
-章节来源
+**章节来源**
 - [Info.plist](file://macos/Runner/Info.plist)
 - [AppInfo.xcconfig](file://macos/Runner/Configs/AppInfo.xcconfig)
 
@@ -228,11 +242,11 @@ C --> |不允许| E["触发沙盒错误"]
 B --> |否| D
 ```
 
-图表来源
+**图表来源**
 - [DebugProfile.entitlements](file://macos/Runner/DebugProfile.entitlements)
 - [Release.entitlements](file://macos/Runner/Release.entitlements)
 
-章节来源
+**章节来源**
 - [DebugProfile.entitlements](file://macos/Runner/DebugProfile.entitlements)
 - [Release.entitlements](file://macos/Runner/Release.entitlements)
 
@@ -241,7 +255,7 @@ B --> |否| D
 - 目标设置：Runner 目标包含 Debug/Profile/Release 三种构建风格；RunnerTests 继承搜索路径。
 - 打包：通过 Xcode Archive 生成 .app 或 .pkg，配合签名与公证流程发布。
 
-章节来源
+**章节来源**
 - [Debug.xcconfig](file://macos/Runner/Configs/Debug.xcconfig)
 - [Release.xcconfig](file://macos/Runner/Configs/Release.xcconfig)
 - [Podfile](file://macos/Podfile)
@@ -262,9 +276,11 @@ X --> A["AppDelegate.swift"]
 X --> W["MainFlutterWindow.swift"]
 X --> M["MainMenu.xib"]
 X --> E["Entitlements"]
+X --> C["CocoaPods 依赖"]
+C --> L["Podfile.lock"]
 ```
 
-图表来源
+**图表来源**
 - [pubspec.yaml](file://pubspec.yaml)
 - [main.dart](file://lib/main.dart)
 - [GeneratedPluginRegistrant.swift](file://macos/Flutter/GeneratedPluginRegistrant.swift)
@@ -273,8 +289,10 @@ X --> E["Entitlements"]
 - [MainMenu.xib](file://macos/Runner/Base.lproj/MainMenu.xib)
 - [DebugProfile.entitlements](file://macos/Runner/DebugProfile.entitlements)
 - [Release.entitlements](file://macos/Runner/Release.entitlements)
+- [Podfile](file://macos/Podfile)
+- [Podfile.lock](file://macos/Podfile.lock)
 
-章节来源
+**章节来源**
 - [pubspec.yaml](file://pubspec.yaml)
 - [GeneratedPluginRegistrant.swift](file://macos/Flutter/GeneratedPluginRegistrant.swift)
 - [MainMenu.xib](file://macos/Runner/Base.lproj/MainMenu.xib)
@@ -290,7 +308,7 @@ X --> E["Entitlements"]
 - 文件访问：根据需求启用用户选择文件与下载目录的读写权限，避免不必要的权限以降低审核风险。
 - 网络访问：如需本地服务或网络功能，按需启用相关权限键。
 
-章节来源
+**章节来源**
 - [DebugProfile.entitlements](file://macos/Runner/DebugProfile.entitlements)
 - [Release.entitlements](file://macos/Runner/Release.entitlements)
 
@@ -300,7 +318,7 @@ X --> E["Entitlements"]
 - 归档：Archive 生成 .xcarchive，导出 .app 或 .pkg。
 - 签名与公证：使用 Apple Developer 证书签名并进行公证，确保可分发。
 
-章节来源
+**章节来源**
 - [Podfile](file://macos/Podfile)
 - [Debug.xcconfig](file://macos/Runner/Configs/Debug.xcconfig)
 - [Release.xcconfig](file://macos/Runner/Configs/Release.xcconfig)
@@ -310,7 +328,7 @@ X --> E["Entitlements"]
 - 集成测试：验证菜单交互、窗口生命周期与文件选择流程。
 - 权限测试：在沙盒环境下验证文件读写与网络访问行为。
 
-章节来源
+**章节来源**
 - [Runner.xcworkspace/contents.xcworkspacedata](file://macos/Runner.xcworkspace/contents.xcworkspacedata)
 
 ## App Store 发布准备
@@ -325,11 +343,12 @@ X --> E["Entitlements"]
 - 沙盒拒绝访问：检查 Entitlements 文件中相关权限键是否启用。
 - 窗口不显示：确认 MainMenu.xib 中委托与窗口连接正常，MainFlutterWindow 已注册插件。
 
-章节来源
+**章节来源**
 - [Podfile](file://macos/Podfile)
+- [Podfile.lock](file://macos/Podfile.lock)
 - [GeneratedPluginRegistrant.swift](file://macos/Flutter/GeneratedPluginRegistrant.swift)
 - [DebugProfile.entitlements](file://macos/Runner/DebugProfile.entitlements)
 - [MainMenu.xib](file://macos/Runner/Base.lproj/MainMenu.xib)
 
 ## 结论
-本文件基于仓库中的实际文件，系统梳理了 ObjectBox Viewer 在 macOS 平台的依赖管理、原生入口、窗口与菜单、权限与沙盒、构建与打包、测试与发布等关键环节。遵循本文档的配置与实践，可稳定地在 macOS 上运行并交付应用。
+本文件基于仓库中的实际文件，系统梳理了 ObjectBox Viewer 在 macOS 平台的依赖管理、原生入口、窗口与菜单、权限与沙盒、构建与打包、测试与发布等关键环节。新增的 CocoaPods 依赖管理和权限配置文件进一步完善了 macOS 平台的支持，遵循本文档的配置与实践，可稳定地在 macOS 上运行并交付应用。

@@ -2,16 +2,15 @@
 
 <cite>
 **本文档引用的文件**
-- [lib/main.dart](file://lib/main.dart)
 - [lib/widgets/schema_detail_panel.dart](file://lib/widgets/schema_detail_panel.dart)
-- [lib/widgets/home_page.dart](file://lib/widgets/home_page.dart)
-- [lib/widgets/entity_list_panel.dart](file://lib/widgets/entity_list_panel.dart)
-- [lib/widgets/data_table_panel.dart](file://lib/widgets/data_table_panel.dart)
+- [lib/widgets/entity_schema_panel.dart](file://lib/widgets/entity_schema_panel.dart)
 - [lib/models/objectbox_model.dart](file://lib/models/objectbox_model.dart)
 - [lib/bloc/db_bloc.dart](file://lib/bloc/db_bloc.dart)
 - [lib/services/objectbox_service.dart](file://lib/services/objectbox_service.dart)
-- [tool/debug_schema.dart](file://tool/debug_schema.dart)
-- [tool/debug_schema_parse.dart](file://tool/debug_schema_parse.dart)
+- [lib/widgets/home_page.dart](file://lib/widgets/home_page.dart)
+- [lib/main.dart](file://lib/main.dart)
+- [tool/debug_schema_detail.dart](file://tool/debug_schema_detail.dart)
+- [tool/parse_schema_correct.dart](file://tool/parse_schema_correct.dart)
 </cite>
 
 ## 目录
@@ -20,145 +19,354 @@
 3. [核心组件](#核心组件)
 4. [架构概览](#架构概览)
 5. [详细组件分析](#详细组件分析)
-6. [依赖分析](#依赖分析)
+6. [依赖关系分析](#依赖关系分析)
 7. [性能考虑](#性能考虑)
 8. [故障排除指南](#故障排除指南)
 9. [结论](#结论)
 
 ## 简介
 
-Schema 详情面板是 ObjectBox Viewer 应用中的核心组件，负责展示数据库的结构信息、实体详情和属性说明。该组件提供了完整的数据库模式可视化功能，包括：
-
-- 数据库文件信息展示
-- 实体列表和属性详情
-- 字段类型说明和索引信息
-- 发现模式下的自动推断功能
-- 与主应用状态管理的集成
-
-该组件采用响应式设计，支持暗色/亮色主题切换，并提供了友好的用户交互体验。
+Schema 详情面板是 ObjectBox 查看器应用中的一个核心功能模块，用于展示和管理 ObjectBox 数据库的模式信息。该面板提供了数据库文件信息、实体概览、属性详情以及关系信息的可视化展示，支持从数据库文件直接解析模式信息而无需依赖 objectbox-model.json 文件。
 
 ## 项目结构
 
-ObjectBox Viewer 采用模块化架构设计，主要包含以下核心模块：
+ObjectBox 查看器采用 Flutter 框架构建，主要分为以下几个核心模块：
 
 ```mermaid
 graph TB
 subgraph "应用层"
-App[ObjectBoxViewerApp]
-Home[HomePage]
+Main[main.dart]
+Home[home_page.dart]
 end
-subgraph "状态管理层"
-Bloc[DbBloc]
-State[DbState]
+subgraph "状态管理"
+Bloc[db_bloc.dart]
 end
-subgraph "视图层"
-SchemaPanel[SchemaDetailPanel]
-EntityList[EntityListPanel]
-DataTable[DataTablePanel]
-end
-subgraph "模型层"
-Model[ObjectBoxModel]
-Entity[EntityInfo]
-Property[PropertyInfo]
-Index[IndexInfo]
-Relation[RelationInfo]
+subgraph "数据模型"
+Model[objectbox_model.dart]
 end
 subgraph "服务层"
-Service[ObjectBoxService]
-Parser[_ObxParser]
+Service[objectbox_service.dart]
 end
-App --> Home
+subgraph "视图组件"
+SchemaPanel[schema_detail_panel.dart]
+EntityPanel[entity_schema_panel.dart]
+end
+subgraph "工具模块"
+Debug[debug_schema_detail.dart]
+Parse[parse_schema_correct.dart]
+end
+Main --> Home
 Home --> Bloc
-Bloc --> SchemaPanel
-Bloc --> EntityList
-Bloc --> DataTable
+Bloc --> Service
+Service --> Model
+Home --> SchemaPanel
+Home --> EntityPanel
 SchemaPanel --> Model
-EntityList --> Model
-DataTable --> Model
-Model --> Service
-Service --> Parser
+EntityPanel --> Model
+Debug --> Service
+Parse --> Service
 ```
 
 **图表来源**
-- [lib/main.dart:13-43](file://lib/main.dart#L13-L43)
-- [lib/widgets/home_page.dart:9-72](file://lib/widgets/home_page.dart#L9-L72)
-- [lib/bloc/db_bloc.dart:91-136](file://lib/bloc/db_bloc.dart#L91-L136)
+- [lib/main.dart:1-147](file://lib/main.dart#L1-L147)
+- [lib/widgets/home_page.dart:1-283](file://lib/widgets/home_page.dart#L1-L283)
+- [lib/bloc/db_bloc.dart:1-218](file://lib/bloc/db_bloc.dart#L1-L218)
 
 **章节来源**
 - [lib/main.dart:1-147](file://lib/main.dart#L1-L147)
-- [lib/widgets/home_page.dart:1-218](file://lib/widgets/home_page.dart#L1-L218)
+- [lib/widgets/home_page.dart:1-283](file://lib/widgets/home_page.dart#L1-L283)
 
 ## 核心组件
 
-Schema 详情面板的核心功能由多个组件协同完成：
+Schema 详情面板系统由多个相互协作的组件构成，每个组件都有明确的职责分工：
 
-### 主要组件职责
-
-1. **SchemaDetailPanel**: 主要的 Schema 展示组件
-2. **ObjectBoxModel**: 数据模型定义
-3. **DbBloc**: 状态管理
-4. **ObjectBoxService**: 数据服务层
-
-### 数据模型结构
+### 主要组件架构
 
 ```mermaid
 classDiagram
+class SchemaDetailPanel {
++ObjectBoxModel model
++Map~String,int~ fileInfo
++bool discovered
++build(context) Widget
+-_buildSection(context,title,children) Widget
+-_buildInfoCard(context,lines) Widget
+-_buildEntityCard(context,entity) Widget
+}
+class EntitySchemaPanel {
++EntityInfo entity
++bool discovered
++build(context) Widget
+-_buildInfoCard(context,lines) Widget
+-_tableHeader(text,theme) Widget
+-_tableCell(text,theme) Widget
+}
 class ObjectBoxModel {
 +EntityInfo[] entities
 +IndexInfo[] indexes
 +RelationInfo[] relations
-+int lastEntityId
-+int lastIndexId
-+int lastRelationId
-+int modelVersion
 +bool discovered
-+fromJson(json)
-+discovered(subDbNames)
++fromJson(json) ObjectBoxModel
++discovered(subDbNames) ObjectBoxModel
 }
 class EntityInfo {
 +String id
 +String name
-+int lastPropertyId
 +PropertyInfo[] properties
-+IndexInfo[] entityIndexes
 +bool discovered
-+fromJson(json)
-+discovered(name)
++fromJson(json) EntityInfo
++discovered(name) EntityInfo
 }
 class PropertyInfo {
 +String id
 +String name
 +int type
 +int flags
-+String indexId
-+String relationTarget
-+fromJson(json)
-+discovered(fieldIndex, inferredType)
-+propertyType
-+isId
-+isNonNull
-+isIndexed
-+displayType
++String displayType
++bool isId
++bool isNonNull
++bool isIndexed
 }
-class IndexInfo {
-+String id
+SchemaDetailPanel --> ObjectBoxModel
+EntitySchemaPanel --> EntityInfo
+ObjectBoxModel --> EntityInfo
+EntityInfo --> PropertyInfo
+```
+
+**图表来源**
+- [lib/widgets/schema_detail_panel.dart:1-283](file://lib/widgets/schema_detail_panel.dart#L1-L283)
+- [lib/widgets/entity_schema_panel.dart:1-205](file://lib/widgets/entity_schema_panel.dart#L1-L205)
+- [lib/models/objectbox_model.dart:1-248](file://lib/models/objectbox_model.dart#L1-L248)
+
+### 数据流处理
+
+```mermaid
+sequenceDiagram
+participant User as 用户
+participant Home as HomePage
+participant Bloc as DbBloc
+participant Service as ObjectBoxService
+participant Parser as _ObxParser
+participant Panel as SchemaPanel
+User->>Home : 打开数据库
+Home->>Bloc : OpenDatabase(path)
+Bloc->>Service : openDatabase(path)
+Service->>Parser : discoverModel()
+Parser->>Parser : 解析LMDB文件
+Parser-->>Service : ObjectBoxModel
+Service-->>Bloc : ObjectBoxModel
+Bloc-->>Home : DbLoaded(state)
+Home->>Panel : 渲染SchemaDetailPanel
+Panel->>Panel : 展示实体信息
+```
+
+**图表来源**
+- [lib/bloc/db_bloc.dart:127-139](file://lib/bloc/db_bloc.dart#L127-L139)
+- [lib/services/objectbox_service.dart:10-19](file://lib/services/objectbox_service.dart#L10-L19)
+- [lib/widgets/home_page.dart:111-132](file://lib/widgets/home_page.dart#L111-L132)
+
+**章节来源**
+- [lib/widgets/schema_detail_panel.dart:1-283](file://lib/widgets/schema_detail_panel.dart#L1-L283)
+- [lib/widgets/entity_schema_panel.dart:1-205](file://lib/widgets/entity_schema_panel.dart#L1-L205)
+- [lib/models/objectbox_model.dart:1-248](file://lib/models/objectbox_model.dart#L1-L248)
+
+## 架构概览
+
+Schema 详情面板采用响应式架构设计，结合了 Flutter 的组件化特性和 BLoC 状态管理模式：
+
+### 整体架构设计
+
+```mermaid
+graph TB
+subgraph "用户界面层"
+Welcome[欢迎界面]
+SchemaDetail[Schema详情面板]
+EntityDetail[实体详情面板]
+DataTable[数据表格面板]
+end
+subgraph "状态管理层"
+DbBloc[DbBloc状态管理]
+DbState[DbState状态]
+DbEvent[DbEvent事件]
+end
+subgraph "数据访问层"
+ObjectBoxService[ObjectBoxService]
+_ObxParser[_ObxParser解析器]
+end
+subgraph "数据模型层"
+ObjectBoxModel[ObjectBoxModel]
+EntityInfo[EntityInfo]
+PropertyInfo[PropertyInfo]
+EntityRow[EntityRow]
+end
+Welcome --> DbBloc
+SchemaDetail --> DbBloc
+EntityDetail --> DbBloc
+DataTable --> DbBloc
+DbBloc --> ObjectBoxService
+ObjectBoxService --> _ObxParser
+_ObxParser --> ObjectBoxModel
+ObjectBoxModel --> EntityInfo
+EntityInfo --> PropertyInfo
+ObjectBoxModel --> EntityRow
+```
+
+**图表来源**
+- [lib/widgets/home_page.dart:35-132](file://lib/widgets/home_page.dart#L35-L132)
+- [lib/bloc/db_bloc.dart:116-218](file://lib/bloc/db_bloc.dart#L116-L218)
+- [lib/services/objectbox_service.dart:7-41](file://lib/services/objectbox_service.dart#L7-L41)
+
+### 状态转换流程
+
+```mermaid
+stateDiagram-v2
+[*] --> DbInitial : 应用启动
+DbInitial --> DbLoading : OpenDatabase
+DbLoading --> DbLoaded : 成功解析
+DbLoading --> DbError : 解析失败
+DbLoaded --> DbLoading : 刷新数据
+DbError --> DbInitial : 关闭数据库
+DbLoaded --> DbLoaded : SelectEntity
+DbLoaded --> DbLoaded : SelectViewMode
+```
+
+**图表来源**
+- [lib/bloc/db_bloc.dart:50-113](file://lib/bloc/db_bloc.dart#L50-L113)
+
+## 详细组件分析
+
+### Schema 详情面板组件
+
+Schema 详情面板是数据库模式信息的主要展示组件，提供了全面的数据库概览信息：
+
+#### 面板功能特性
+
+```mermaid
+flowchart TD
+Start[Schema详情面板启动] --> CheckDiscovered{是否为发现模式?}
+CheckDiscovered --> |是| ShowNotice[显示发现通知]
+CheckDiscovered --> |否| ShowModelInfo[显示模型信息]
+ShowNotice --> ShowFiles[显示文件信息]
+ShowModelInfo --> ShowFiles
+ShowFiles --> ShowEntities[显示实体概览]
+ShowEntities --> CheckRelations{是否有关系?}
+CheckRelations --> |是| ShowRelations[显示关系信息]
+CheckRelations --> |否| End[完成渲染]
+ShowRelations --> End
+End --> UserAction{用户操作?}
+UserAction --> |选择实体| EntityPanel[跳转到实体面板]
+UserAction --> |切换视图| ViewMode[切换视图模式]
+UserAction --> |刷新数据| Refresh[重新加载数据]
+UserAction --> |关闭| Close[关闭数据库]
+```
+
+**图表来源**
+- [lib/widgets/schema_detail_panel.dart:16-123](file://lib/widgets/schema_detail_panel.dart#L16-L123)
+
+#### 实体卡片展示
+
+实体卡片是 Schema 详情面板的核心展示元素，提供了实体的基本信息和属性概览：
+
+```mermaid
+classDiagram
+class EntityCard {
++String entityName
++String entityId
++Property[] properties
++bool discovered
++render() Widget
+-_buildPropertyTable() Widget
+-_buildFlagBadge() Widget
+}
+class Property {
 +String name
-+int entityId
-+String[] propertyIds
-+int flags
-+fromJson(json)
-}
-class RelationInfo {
++String type
++String flags
 +String id
-+String name
-+int sourceEntityId
-+int targetEntityId
-+fromJson(json)
 }
-ObjectBoxModel --> EntityInfo : "包含"
-EntityInfo --> PropertyInfo : "包含"
-EntityInfo --> IndexInfo : "包含"
-ObjectBoxModel --> RelationInfo : "包含"
+EntityCard --> Property : 包含
+```
+
+**图表来源**
+- [lib/widgets/schema_detail_panel.dart:167-253](file://lib/widgets/schema_detail_panel.dart#L167-L253)
+
+**章节来源**
+- [lib/widgets/schema_detail_panel.dart:1-283](file://lib/widgets/schema_detail_panel.dart#L1-L283)
+
+### 实体 Schema 面板组件
+
+实体 Schema 面板专注于单个实体的详细模式信息展示：
+
+#### 面板布局设计
+
+```mermaid
+graph LR
+subgraph "实体Schema面板"
+Header[头部区域<br/>实体名称 + ID标识]
+InfoCard[信息卡片<br/>实体基本信息]
+PropertyTable[属性表格<br/>字段详情]
+end
+subgraph "发现模式标识"
+AutoBadge[自动标识]
+DiscoveredBadge[发现标识]
+end
+Header --> AutoBadge
+Header --> DiscoveredBadge
+InfoCard --> PropertyTable
+```
+
+**图表来源**
+- [lib/widgets/entity_schema_panel.dart:14-145](file://lib/widgets/entity_schema_panel.dart#L14-L145)
+
+**章节来源**
+- [lib/widgets/entity_schema_panel.dart:1-205](file://lib/widgets/entity_schema_panel.dart#L1-L205)
+
+### 数据模型结构
+
+ObjectBox 模型系统采用了分层的数据结构设计，支持从 JSON 文件解析和直接从数据库文件发现两种模式：
+
+#### 模型层次结构
+
+```mermaid
+erDiagram
+OBJECTBOX_MODEL {
+int lastEntityId
+int lastIndexId
+int lastRelationId
+int modelVersion
+boolean discovered
+}
+ENTITY_INFO {
+string id
+string name
+int lastPropertyId
+boolean discovered
+}
+PROPERTY_INFO {
+string id
+string name
+int type
+int flags
+string indexId
+string relationTarget
+}
+INDEX_INFO {
+string id
+string name
+int entityId
+string[] propertyIds
+int flags
+}
+RELATION_INFO {
+string id
+string name
+int sourceEntityId
+int targetEntityId
+}
+OBJECTBOX_MODEL ||--o{ ENTITY_INFO : 包含
+ENTITY_INFO ||--o{ PROPERTY_INFO : 定义
+ENTITY_INFO ||--o{ INDEX_INFO : 创建
+OBJECTBOX_MODEL ||--o{ RELATION_INFO : 描述
 ```
 
 **图表来源**
@@ -167,289 +375,130 @@ ObjectBoxModel --> RelationInfo : "包含"
 **章节来源**
 - [lib/models/objectbox_model.dart:1-248](file://lib/models/objectbox_model.dart#L1-L248)
 
-## 架构概览
+## 依赖关系分析
 
-Schema 详情面板在整个应用架构中扮演着关键角色，连接了数据层、业务逻辑层和用户界面层：
+Schema 详情面板系统具有清晰的依赖层次结构，各组件之间的耦合度较低，便于维护和扩展：
 
-```mermaid
-sequenceDiagram
-participant User as 用户
-participant Panel as SchemaDetailPanel
-participant Bloc as DbBloc
-participant Service as ObjectBoxService
-participant Parser as _ObxParser
-participant Model as ObjectBoxModel
-User->>Panel : 打开数据库
-Panel->>Bloc : OpenDatabase(path)
-Bloc->>Service : openDatabase(path)
-Service->>Parser : discoverModel()
-Parser->>Parser : 解析 LMDB 文件
-Parser->>Model : 构建数据模型
-Model-->>Service : 返回模型
-Service-->>Bloc : 返回模型
-Bloc-->>Panel : 更新状态
-Panel-->>User : 显示 Schema 详情
-```
-
-**图表来源**
-- [lib/bloc/db_bloc.dart:101-110](file://lib/bloc/db_bloc.dart#L101-L110)
-- [lib/services/objectbox_service.dart:10-19](file://lib/services/objectbox_service.dart#L10-L19)
-- [lib/services/objectbox_service.dart:78-111](file://lib/services/objectbox_service.dart#L78-L111)
-
-**章节来源**
-- [lib/bloc/db_bloc.dart:1-136](file://lib/bloc/db_bloc.dart#L1-L136)
-- [lib/services/objectbox_service.dart:1-1006](file://lib/services/objectbox_service.dart#L1-L1006)
-
-## 详细组件分析
-
-### SchemaDetailPanel 组件
-
-SchemaDetailPanel 是整个 Schema 详情展示的核心组件，提供了丰富的数据库信息可视化功能：
-
-#### 组件特性
-
-1. **响应式布局**: 支持不同屏幕尺寸的自适应布局
-2. **主题适配**: 完美适配 Material Design 3 主题系统
-3. **发现模式支持**: 区分正常模式和发现模式下的显示差异
-4. **信息层次化**: 清晰的信息分组和层次结构
-
-#### 核心功能实现
+### 组件依赖关系
 
 ```mermaid
-flowchart TD
-Start([组件初始化]) --> CheckDiscovered{"是否发现模式?"}
-CheckDiscovered --> |是| ShowDiscoveryNotice["显示发现通知"]
-CheckDiscovered --> |否| ShowNormalMode["显示正常模式"]
-ShowDiscoveryNotice --> BuildFileInfo["构建文件信息卡片"]
-ShowNormalMode --> BuildFileInfo
-BuildFileInfo --> BuildModelInfo["构建模型信息卡片"]
-BuildModelInfo --> BuildEntities["构建实体列表"]
-BuildEntities --> CheckRelations{"是否有关系?"}
-CheckRelations --> |是| BuildRelations["构建关系列表"]
-CheckRelations --> |否| End([渲染完成])
-BuildRelations --> End
-BuildEntities --> End
-```
-
-**图表来源**
-- [lib/widgets/schema_detail_panel.dart:16-123](file://lib/widgets/schema_detail_panel.dart#L16-L123)
-
-#### 实体卡片展示
-
-每个实体都以卡片形式展示，包含以下信息：
-
-1. **实体基本信息**: 名称、ID（在非发现模式下）
-2. **属性表格**: 字段名、类型、标志位、ID
-3. **发现模式标识**: 显示 "Discovered" 标签
-
-#### 属性表格设计
-
-```mermaid
-graph LR
-subgraph "属性表格列"
-Name[名称]
-Type[类型]
-Flags[标志位]
-ID[ID]
+graph TD
+subgraph "UI组件层"
+SchemaPanel[schema_detail_panel.dart]
+EntityPanel[entity_schema_panel.dart]
+HomePage[home_page.dart]
 end
-subgraph "标志位说明"
-IDFlag[ID 标志]
-NotNull[NOT NULL 标志]
-Indexed[索引标志]
+subgraph "状态管理层"
+DbBloc[db_bloc.dart]
 end
-Flags --> IDFlag
-Flags --> NotNull
-Flags --> Indexed
-```
-
-**图表来源**
-- [lib/widgets/schema_detail_panel.dart:213-239](file://lib/widgets/schema_detail_panel.dart#L213-L239)
-- [lib/widgets/schema_detail_panel.dart:269-275](file://lib/widgets/schema_detail_panel.dart#L269-L275)
-
-**章节来源**
-- [lib/widgets/schema_detail_panel.dart:1-283](file://lib/widgets/schema_detail_panel.dart#L1-L283)
-
-### 数据模型解析
-
-ObjectBoxService 负责从 LMDB 文件中解析 Schema 信息，支持两种模式：
-
-#### 正常模式（基于 JSON）
-
-当存在 `objectbox-model.json` 文件时，直接解析 JSON 并构建模型：
-
-```mermaid
-flowchart LR
-JSON[objectbox-model.json] --> Parser[JSON 解析器]
-Parser --> Model[ObjectBoxModel]
-Model --> UI[UI 组件]
-```
-
-#### 发现模式（无 JSON 文件）
-
-当缺少 JSON 文件时，通过直接解析 LMDB 文件来推断 Schema：
-
-```mermaid
-flowchart TD
-LMDB[data.mdb] --> Scanner[文件扫描器]
-Scanner --> NameFinder[实体名称查找]
-NameFinder --> VTableScan[VTable 扫描]
-VTableScan --> EntityParser[实体解析器]
-EntityParser --> Model[ObjectBoxModel]
-Model --> UI[UI 组件]
-```
-
-**图表来源**
-- [lib/services/objectbox_service.dart:78-111](file://lib/services/objectbox_service.dart#L78-L111)
-- [lib/services/objectbox_service.dart:158-185](file://lib/services/objectbox_service.dart#L158-L185)
-- [lib/services/objectbox_service.dart:187-217](file://lib/services/objectbox_service.dart#L187-L217)
-
-**章节来源**
-- [lib/services/objectbox_service.dart:1-1006](file://lib/services/objectbox_service.dart#L1-L1006)
-
-### 状态管理集成
-
-DbBloc 提供了完整的状态管理机制，确保 Schema 详情面板能够响应数据变化：
-
-#### 状态流转
-
-```mermaid
-stateDiagram-v2
-[*] --> DbInitial
-DbInitial --> DbLoading : OpenDatabase
-DbLoading --> DbLoaded : 成功
-DbLoading --> DbError : 失败
-DbLoaded --> DbLoaded : SelectEntity
-DbLoaded --> DbLoaded : RefreshData
-DbError --> DbInitial : CloseDatabase
-DbLoaded --> DbInitial : CloseDatabase
-```
-
-**图表来源**
-- [lib/bloc/db_bloc.dart:39-88](file://lib/bloc/db_bloc.dart#L39-L88)
-- [lib/bloc/db_bloc.dart:94-135](file://lib/bloc/db_bloc.dart#L94-L135)
-
-**章节来源**
-- [lib/bloc/db_bloc.dart:1-136](file://lib/bloc/db_bloc.dart#L1-L136)
-
-## 依赖分析
-
-Schema 详情面板的依赖关系相对清晰，主要依赖于以下核心模块：
-
-```mermaid
-graph TB
-subgraph "外部依赖"
-Flutter[Flutter Framework]
-Material[Material Design]
-Bloc[flutter_bloc]
+subgraph "服务层"
+ObjectBoxService[objectbox_service.dart]
 end
-subgraph "内部模块"
-SchemaPanel[SchemaDetailPanel]
-Model[ObjectBoxModel]
-Service[ObjectBoxService]
-Bloc[DbBloc]
+subgraph "数据模型层"
+ObjectBoxModel[objectbox_model.dart]
 end
-subgraph "工具类"
-Parser[_ObxParser]
-Utils[辅助工具]
+subgraph "工具层"
+DebugTools[debug_* 工具]
 end
-Flutter --> SchemaPanel
-Material --> SchemaPanel
-Bloc --> SchemaPanel
-SchemaPanel --> Model
-SchemaPanel --> Service
-Service --> Parser
-Bloc --> Service
+SchemaPanel --> ObjectBoxModel
+EntityPanel --> ObjectBoxModel
+HomePage --> DbBloc
+DbBloc --> ObjectBoxService
+ObjectBoxService --> ObjectBoxModel
+DebugTools --> ObjectBoxService
+DebugTools --> ObjectBoxModel
 ```
 
 **图表来源**
 - [lib/widgets/schema_detail_panel.dart:1-2](file://lib/widgets/schema_detail_panel.dart#L1-L2)
+- [lib/widgets/entity_schema_panel.dart:1-2](file://lib/widgets/entity_schema_panel.dart#L1-L2)
 - [lib/bloc/db_bloc.dart:4-5](file://lib/bloc/db_bloc.dart#L4-L5)
 
+### 外部依赖分析
+
+项目使用了以下关键外部依赖：
+
+| 依赖包 | 版本 | 用途 |
+|--------|------|------|
+| flutter_bloc | ^9.1.1 | 状态管理 |
+| file_picker | ^11.0.2 | 文件选择 |
+| path_provider | ^2.1.5 | 路径管理 |
+| equatable | ^2.0.8 | 对象相等性比较 |
+| objectbox | 5.3.1 | ObjectBox数据库 |
+| objectbox_flutter_libs | 5.3.1 | Flutter数据库库 |
+
 **章节来源**
-- [lib/widgets/schema_detail_panel.dart:1-283](file://lib/widgets/schema_detail_panel.dart#L1-L283)
-- [lib/bloc/db_bloc.dart:1-136](file://lib/bloc/db_bloc.dart#L1-L136)
+- [lib/bloc/db_bloc.dart:116-218](file://lib/bloc/db_bloc.dart#L116-L218)
+- [lib/services/objectbox_service.dart:1-800](file://lib/services/objectbox_service.dart#L1-L800)
 
 ## 性能考虑
 
-针对大数据 Schema 的处理，系统采用了多种优化策略：
+Schema 详情面板在设计时充分考虑了性能优化，特别是在处理大型数据库文件时的性能表现：
 
-### 内存管理优化
+### 性能优化策略
 
-1. **流式解析**: 使用流式读取方式处理大型 LMDB 文件
-2. **按需加载**: 只在需要时解析实体属性
-3. **缓存机制**: 对已解析的数据进行缓存避免重复计算
+1. **延迟加载机制**：实体数据仅在用户选择特定实体时才进行加载
+2. **内存管理**：使用 Uint8List 和 ByteData 进行高效的二进制数据处理
+3. **增量更新**：状态变更时只更新受影响的部分UI
+4. **缓存策略**：避免重复解析相同的数据内容
 
-### 处理策略
+### 内存使用优化
 
 ```mermaid
 flowchart TD
-LargeDB[大数据库] --> CheckSize{"文件大小检查"}
-CheckSize --> |小文件| FullParse["完整解析"]
-CheckSize --> |大文件| LazyParse["延迟解析"]
-LazyParse --> EntitySelection["实体选择"]
-EntitySelection --> PropertyParse["按需解析属性"]
-PropertyParse --> MemoryOpt["内存优化"]
-MemoryOpt --> Display["显示结果"]
-FullParse --> Display
+DataLoad[数据加载] --> MemoryCheck{内存检查}
+MemoryCheck --> |充足| FullLoad[完整加载]
+MemoryCheck --> |不足| LazyLoad[延迟加载]
+FullLoad --> ProcessData[处理数据]
+LazyLoad --> ProcessData
+ProcessData --> RenderUI[渲染UI]
+RenderUI --> OptimizeMemory[优化内存]
+OptimizeMemory --> End[完成]
 ```
-
-### 大数据处理建议
-
-1. **分页加载**: 对于大量实体的情况，考虑实现分页加载
-2. **增量更新**: 支持增量更新而非全量重新解析
-3. **异步处理**: 将耗时的解析操作放在后台线程执行
 
 ## 故障排除指南
 
 ### 常见问题及解决方案
 
-#### 无法找到数据库文件
+#### 数据库文件解析错误
 
-**问题症状**: 打开数据库时提示找不到文件
+**问题描述**：无法正确解析数据库文件或显示空数据
 
-**解决方法**:
-1. 确认选择了正确的数据库目录
-2. 检查目录中是否存在 `data.mdb` 文件
-3. 验证文件权限设置
+**可能原因**：
+1. 数据库文件损坏或格式不兼容
+2. 缺少必要的权限访问数据库文件
+3. 使用了不支持的 ObjectBox 版本
 
-#### Schema 解析失败
+**解决步骤**：
+1. 验证数据库文件完整性
+2. 检查文件权限设置
+3. 确认 ObjectBox 版本兼容性
 
-**问题症状**: 发现模式下无法正确解析实体信息
+#### Schema 发现模式问题
 
-**解决方法**:
-1. 检查 LMDB 文件完整性
-2. 验证文件格式是否为 ObjectBox 格式
-3. 查看日志输出获取详细错误信息
+**问题描述**：在发现模式下实体属性显示为 field_0, field_1 等占位符
 
-#### 性能问题
-
-**问题症状**: 大数据库打开缓慢或内存占用过高
-
-**解决方法**:
-1. 考虑使用发现模式而非完整 JSON 解析
-2. 实施分页加载策略
-3. 优化 UI 组件的渲染性能
+**解决方案**：
+1. 确保数据库文件包含有效的 FlatBuffer 结构
+2. 检查实体名称是否符合命名约定
+3. 验证数据库文件的完整性
 
 **章节来源**
-- [lib/services/objectbox_service.dart:10-19](file://lib/services/objectbox_service.dart#L10-L19)
-- [lib/widgets/home_page.dart:190-218](file://lib/widgets/home_page.dart#L190-L218)
+- [lib/widgets/schema_detail_panel.dart:45-75](file://lib/widgets/schema_detail_panel.dart#L45-L75)
+- [lib/services/objectbox_service.dart:80-113](file://lib/services/objectbox_service.dart#L80-L113)
 
 ## 结论
 
-Schema 详情面板组件展现了优秀的架构设计和实现质量。通过模块化的设计、清晰的状态管理以及高效的解析算法，该组件成功地实现了数据库 Schema 的可视化展示功能。
+Schema 详情面板作为 ObjectBox 查看器的核心功能模块，成功实现了数据库模式信息的可视化展示。通过采用响应式架构设计和高效的二进制数据解析技术，该面板能够提供流畅的用户体验，同时支持从数据库文件直接解析模式信息的高级功能。
 
-### 主要优势
+系统的主要优势包括：
+- **灵活性**：支持从数据库文件直接解析模式信息，无需依赖 JSON 文件
+- **可扩展性**：模块化的架构设计便于功能扩展和维护
+- **性能优化**：针对大型数据库文件进行了专门的性能优化
+- **用户友好**：直观的界面设计和清晰的信息层次结构
 
-1. **架构清晰**: 采用分层架构，职责分离明确
-2. **性能优秀**: 针对大数据场景进行了专门优化
-3. **用户体验良好**: 提供了直观易用的界面设计
-4. **扩展性强**: 支持多种数据源和解析模式
-
-### 技术亮点
-
-- 完整的发现模式支持，无需依赖 JSON 文件
-- 高效的 LMDB 文件解析算法
-- 响应式的 UI 设计和主题适配
-- 完善的状态管理和错误处理机制
-
-该组件为 ObjectBox Viewer 提供了强大的 Schema 可视化能力，是整个应用的核心基础组件之一。
+未来可以考虑的功能增强包括：
+- 添加模式对比功能
+- 支持更多数据库格式
+- 增强搜索和过滤能力
+- 提供更详细的性能分析信息

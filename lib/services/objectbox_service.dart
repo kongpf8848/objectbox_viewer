@@ -375,6 +375,21 @@ class _ObxParser {
     // (most recent write), keyed by objectId.
     final rowMap = <int, (int pgno, EntityRow row)>{};
 
+    // ObjectBox stores ALL entities in a single LMDB B-tree, sorted by objectId.
+    // There is NO entityId in the data entry key — byte 15 of the key is the
+    // FlatBuffer objectId (same as field[0] in the value), used for sort order.
+    // The only reliable way to distinguish entries from different entities is by
+    // comparing the FlatBuffer vtable field count against the entity's schema.
+    //
+    // Empirically, FlatBuffer numFields = entity.properties.length + 1.
+    // The "+1" accounts for an extra ObjectBox-internal field slot in the vtable
+    // (likely the objectId field stored at field index 0, which the schema parser
+    // counts separately as the "id" property but the vtable always has the slot).
+    // More precisely: schema properties includes the id property (flags & 1),
+    // and the FlatBuffer vtable also has it, but OBX internally adds one extra
+    // slot for metadata — hence numFields is always schema.length + 1.
+    final schemaFieldCount = entity.properties.length + 1;
+
     for (var pgno = 0; pgno < _numPages; pgno++) {
       if (_freedPages.contains(pgno)) continue;
       final page = _readPage(pgno);
@@ -382,6 +397,13 @@ class _ObxParser {
 
       for (final entry in page.entries) {
         if (entry.isSchema) continue;
+
+        // Pre-filter: check FlatBuffer field count matches schema before full parse.
+        // This distinguishes entries from different entities sharing the same B-tree.
+        if (schemaFieldCount > 0 &&
+            !_entryMatchesSchema(entry, schemaFieldCount)) {
+          continue;
+        }
 
         final row = _parseDataEntry(entry, entity);
         if (row == null) continue;
@@ -802,6 +824,35 @@ class _ObxParser {
   }
 
   // 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸?Data Entry Parsing 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜?
+  /// Quick check: parse the FlatBuffer vtable of [entry] and return true only if
+  /// the vtable field count equals [expectedFieldCount].
+  /// This is the cheapest way to distinguish entries from different entities that
+  /// share the same LMDB B-tree.
+  bool _entryMatchesSchema(_EntryData entry, int expectedFieldCount) {
+    final absEntry = entry.absEntry;
+    final valStart = absEntry + 16;
+    final valLen = entry.length - 16;
+    if (valLen < 8) return false;
+
+    final rootOffset = _bd.getUint32(valStart, Endian.little);
+    if (rootOffset == 0 || rootOffset >= valLen) {
+      return expectedFieldCount == 0;
+    }
+
+    final tableStart = valStart + rootOffset;
+    if (tableStart + 4 > valStart + valLen) return false;
+
+    final vtableSOff = _bd.getInt32(tableStart, Endian.little);
+    if (vtableSOff == 0) return false;
+    final vtableStart = tableStart - vtableSOff;
+    if (vtableStart < 0 || vtableStart + 4 > valStart + valLen) return false;
+
+    final vtableSize = _bd.getUint16(vtableStart, Endian.little);
+    if (vtableSize < 4 || vtableSize > 256) return false;
+    final numFields = (vtableSize - 4) ~/ 2;
+    return numFields == expectedFieldCount;
+  }
+
   EntityRow? _parseDataEntry(_EntryData entry, EntityInfo entity) {
     final absEntry = entry.absEntry;
     final valStart = absEntry + 16;
