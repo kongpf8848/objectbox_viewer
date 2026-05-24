@@ -49,8 +49,9 @@ class _DataTablePanelState extends State<DataTablePanel> {
 
     final start = _currentPage * _pageSize;
     final end = (start + _pageSize).clamp(0, totalRows);
-    final pagedRows =
-        widget.rows == null ? null : widget.rows!.sublist(start, end);
+    final pagedRows = widget.rows == null
+        ? null
+        : widget.rows!.sublist(start, end);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

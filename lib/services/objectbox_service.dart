@@ -500,8 +500,13 @@ class _ObxParser {
         final entryLen = entryEnd - ptr;
         if (entryLen >= 8) {
           // Child pgno is the last 8 bytes of the branch node
-          final childPgno = _bd.getUint64(off + ptr + entryLen - 8, Endian.little);
-          if (childPgno > 0 && childPgno < _numPages && !freed.contains(childPgno)) {
+          final childPgno = _bd.getUint64(
+            off + ptr + entryLen - 8,
+            Endian.little,
+          );
+          if (childPgno > 0 &&
+              childPgno < _numPages &&
+              !freed.contains(childPgno)) {
             _traverseFreeDb(childPgno, freed);
           }
         }

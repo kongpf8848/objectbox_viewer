@@ -45,7 +45,6 @@ class EntityListPanel extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-
             ],
           ),
         ),
