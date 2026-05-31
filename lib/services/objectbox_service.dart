@@ -948,8 +948,13 @@ class _ObxParser {
     int valEnd, [
     int? propertyType,
   ]) {
-    // ObjectBox PropertyType: 1=bool, 2=byte, 3=short, 4=char, 5=int,
-    // 6=long, 7=float, 8=double, 9=string, 10=date, 11=dateNano, 12=relation
+    // ObjectBox PropertyType values aligned with OBXPropertyType from C API:
+    //   1=bool, 2=byte, 3=short, 4=char, 5=int,
+    //   6=long, 7=float, 8=double, 9=string, 10=date,
+    //   11=relation, 12=dateNano, 13=flex,
+    //   22=boolVector, 23=byteVector, 24=shortVector, 25=charVector,
+    //   26=intVector, 27=longVector, 28=floatVector, 29=doubleVector,
+    //   30=stringVector, 31=dateVector, 32=dateNanoVector
     final pt = propertyType ?? 0;
     switch (pt) {
       case 1: // bool
@@ -961,9 +966,9 @@ class _ObxParser {
       case 3: // short (int16)
         if (addr + 2 > valEnd) return null;
         return _bd.getInt16(addr, Endian.little);
-      case 4: // char
-        if (addr + 1 > valEnd) return null;
-        return _data[addr];
+      case 4: // char (16-bit character)
+        if (addr + 2 > valEnd) return null;
+        return _bd.getUint16(addr, Endian.little);
       case 5: // int (int32)
         if (addr + 4 > valEnd) return null;
         return _bd.getInt32(addr, Endian.little);
@@ -981,12 +986,77 @@ class _ObxParser {
       case 10: // date (ms since epoch, int64)
         if (addr + 8 > valEnd) return null;
         return _bd.getInt64(addr, Endian.little);
-      case 11: // dateNano (ns since epoch, int64)
+      case 11: // relation (int64 target ID)
         if (addr + 8 > valEnd) return null;
         return _bd.getInt64(addr, Endian.little);
-      case 12: // relation (int64)
+      case 12: // dateNano (ns since epoch, int64)
         if (addr + 8 > valEnd) return null;
         return _bd.getInt64(addr, Endian.little);
+      case 13: // flex (FlexBuffer encoded)
+        return _readFlexBufferField(addr, valEnd);
+      // Vector types: stored as FlatBuffer vector with length prefix
+      case 22: // boolVector
+        return _readFbVector<bool>(addr, valEnd, 1, (a) => _data[a] != 0);
+      case 23: // byteVector
+        return _readFbVector<int>(addr, valEnd, 1, (a) => _data[a]);
+      case 24: // shortVector
+        return _readFbVector<int>(
+          addr,
+          valEnd,
+          2,
+          (a) => _bd.getInt16(a, Endian.little),
+        );
+      case 25: // charVector
+        return _readFbVector<int>(
+          addr,
+          valEnd,
+          2,
+          (a) => _bd.getUint16(a, Endian.little),
+        );
+      case 26: // intVector
+        return _readFbVector<int>(
+          addr,
+          valEnd,
+          4,
+          (a) => _bd.getInt32(a, Endian.little),
+        );
+      case 27: // longVector
+        return _readFbVector<int>(
+          addr,
+          valEnd,
+          8,
+          (a) => _bd.getInt64(a, Endian.little),
+        );
+      case 28: // floatVector
+        return _readFbVector<double>(
+          addr,
+          valEnd,
+          4,
+          (a) => _bd.getFloat32(a, Endian.little),
+        );
+      case 29: // doubleVector
+        return _readFbVector<double>(
+          addr,
+          valEnd,
+          8,
+          (a) => _bd.getFloat64(a, Endian.little),
+        );
+      case 30: // stringVector
+        return _readFbStringVector(addr, valEnd);
+      case 31: // dateVector (list of int64 ms timestamps)
+        return _readFbVector<int>(
+          addr,
+          valEnd,
+          8,
+          (a) => _bd.getInt64(a, Endian.little),
+        );
+      case 32: // dateNanoVector (list of int64 ns timestamps)
+        return _readFbVector<int>(
+          addr,
+          valEnd,
+          8,
+          (a) => _bd.getInt64(a, Endian.little),
+        );
     }
 
     // Unknown type – heuristic fallback
@@ -995,9 +1065,6 @@ class _ObxParser {
       if (addr + 8 <= valEnd) {
         final v = _bd.getInt64(addr, Endian.little);
         if (v != 0 && v != 0x7FFFFFFFFFFFFFFF && v != -1) {
-          if (v > 1577836800000 && v < 1893456000000) {
-            return v;
-          }
           return v;
         }
       }
@@ -1034,6 +1101,184 @@ class _ObxParser {
   }
 
   // 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸?Helpers 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑?
+  /// Read a FlatBuffer vector of numeric values.
+  /// [elementSize] is the size of each element in bytes.
+  /// [readElement] reads a single element at the given absolute offset.
+  List<T>? _readFbVector<T>(
+    int fieldAddr,
+    int valEnd,
+    int elementSize,
+    T Function(int addr) readElement,
+  ) {
+    if (fieldAddr + 4 > valEnd) return null;
+    final vecOff = _bd.getUint32(fieldAddr, Endian.little);
+    if (vecOff < 4 || vecOff > 100000) return null;
+    final vecAddr = fieldAddr + vecOff;
+    if (vecAddr + 4 > valEnd) return null;
+    final vecLen = _bd.getUint32(vecAddr, Endian.little);
+    if (vecLen > 10000) return null; // sanity check
+    final result = <T>[];
+    final dataStart = vecAddr + 4;
+    for (var i = 0; i < vecLen; i++) {
+      final elemAddr = dataStart + i * elementSize;
+      if (elemAddr + elementSize > valEnd) break;
+      result.add(readElement(elemAddr));
+    }
+    return result;
+  }
+
+  /// Read a FlatBuffer vector of strings.
+  List<String>? _readFbStringVector(int fieldAddr, int valEnd) {
+    if (fieldAddr + 4 > valEnd) return null;
+    final vecOff = _bd.getUint32(fieldAddr, Endian.little);
+    if (vecOff < 4 || vecOff > 100000) return null;
+    final vecAddr = fieldAddr + vecOff;
+    if (vecAddr + 4 > valEnd) return null;
+    final vecLen = _bd.getUint32(vecAddr, Endian.little);
+    if (vecLen > 10000) return null;
+    final result = <String>[];
+    // String vector: each element is a uint32 offset to a FlatBuffer string
+    for (var i = 0; i < vecLen; i++) {
+      final elemOffAddr = vecAddr + 4 + i * 4;
+      if (elemOffAddr + 4 > valEnd) break;
+      final strOff = _bd.getUint32(elemOffAddr, Endian.little);
+      if (strOff == 0) continue;
+      final strAddr = elemOffAddr + strOff;
+      if (strAddr + 4 > valEnd) continue;
+      final strLen = _bd.getUint32(strAddr, Endian.little);
+      if (strLen > 0 && strLen < 10000 && strAddr + 4 + strLen <= valEnd) {
+        try {
+          final s = utf8.decode(
+            _data.sublist(strAddr + 4, strAddr + 4 + strLen),
+            allowMalformed: true,
+          );
+          result.add(s);
+        } catch (_) {}
+      }
+    }
+    return result;
+  }
+
+  /// Read a Flex type field (OBXPropertyType_Flex = 13).
+  /// Flex fields use FlexBuffer encoding, a compact binary format
+  /// that supports dynamic types (maps, lists, scalars, strings).
+  /// Since we don't have a full FlexBuffer decoder, we attempt basic parsing
+  /// and fall back to showing raw bytes as a hex string.
+  dynamic _readFlexBufferField(int fieldAddr, int valEnd) {
+    if (fieldAddr + 4 > valEnd) return null;
+    final vecOff = _bd.getUint32(fieldAddr, Endian.little);
+    if (vecOff < 4 || vecOff > 100000) return null;
+    final dataAddr = fieldAddr + vecOff;
+    if (dataAddr + 4 > valEnd) return null;
+    // Flex fields are stored as a byte vector in FlatBuffer
+    final vecLen = _bd.getUint32(dataAddr, Endian.little);
+    if (vecLen <= 0 || vecLen > 100000) return null;
+    final dataStart = dataAddr + 4;
+    if (dataStart + vecLen > valEnd) return null;
+    // Try to parse as FlexBuffer
+    try {
+      return _parseFlexBuffer(dataStart, vecLen);
+    } catch (_) {
+      // Fallback: return as hex string
+      final bytes = _data.sublist(dataStart, dataStart + vecLen);
+      return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+    }
+  }
+
+  /// Minimal FlexBuffer parser supporting common types.
+  /// FlexBuffer format: [data...][byte1: value byte][byte2: type << 2 | width]
+  /// The last byte encodes the type and width of the root value.
+  dynamic _parseFlexBuffer(int start, int length) {
+    if (length < 2) return null;
+    // The last byte encodes type and indirect width
+    final lastByte = _data[start + length - 1];
+    final typeNibble = lastByte >> 2;
+    final width = (lastByte & 3) + 1; // 1, 2, 4, or 8 bytes
+
+    // FlexBuffer types
+    const int fbtNull = 0;
+    const int fbtInt = 1;
+    const int fbtUInt = 2;
+    const int fbtFloat = 3;
+    const int fbtString = 5;
+    const int fbtMap = 9;
+    const int fbtVector = 10;
+    const int fbtBool = 26;
+
+    switch (typeNibble) {
+      case fbtNull:
+        return null;
+      case fbtInt:
+        return _readFlexInt(start + length - 1 - width, width);
+      case fbtUInt:
+        return _readFlexUInt(start + length - 1 - width, width);
+      case fbtFloat:
+        if (width == 4) {
+          return _bd.getFloat32(start + length - 1 - width, Endian.little);
+        } else if (width == 8) {
+          return _bd.getFloat64(start + length - 1 - width, Endian.little);
+        }
+        return null;
+      case fbtString:
+        final strLen = _readFlexUInt(start + length - 1 - width * 2, width);
+        final strStart = start + length - 1 - width * 2 - strLen;
+        if (strStart >= start && strStart + strLen <= start + length) {
+          return utf8.decode(
+            _data.sublist(strStart, strStart + strLen),
+            allowMalformed: true,
+          );
+        }
+        return null;
+      case fbtBool:
+        return _data[start + length - 1 - 1] != 0;
+      case fbtVector:
+      case fbtMap:
+        // For vectors and maps, return a descriptive string since
+        // full parsing is complex.
+        final sizeAddr = start + length - 1 - width;
+        final size = _readFlexUInt(sizeAddr, width);
+        if (typeNibble == fbtVector) {
+          return '<$size items>';
+        } else {
+          return '<$size keys>';
+        }
+      default:
+        // Unsupported FlexBuffer type, return hex
+        final bytes = _data.sublist(start, start + length);
+        return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+    }
+  }
+
+  int _readFlexInt(int addr, int width) {
+    switch (width) {
+      case 1:
+        return _data[addr].toSigned(8);
+      case 2:
+        return _bd.getInt16(addr, Endian.little);
+      case 4:
+        return _bd.getInt32(addr, Endian.little);
+      case 8:
+        return _bd.getInt64(addr, Endian.little);
+      default:
+        return 0;
+    }
+  }
+
+  int _readFlexUInt(int addr, int width) {
+    switch (width) {
+      case 1:
+        return _data[addr];
+      case 2:
+        return _bd.getUint16(addr, Endian.little);
+      case 4:
+        return _bd.getUint32(addr, Endian.little);
+      case 8:
+        return _bd.getUint64(addr, Endian.little);
+      default:
+        return 0;
+    }
+  }
+
   bool _isPrintable(String s) {
     return s.runes.every(
       (r) => (r >= 0x20 && r <= 0x7E) || (r >= 0x4E00 && r <= 0x9FFF),

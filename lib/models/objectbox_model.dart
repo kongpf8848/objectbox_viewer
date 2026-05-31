@@ -1,3 +1,19 @@
+/// Parse ObjectBox IdUid format "id:uid" – extracts just the id part.
+/// ObjectBox uses "id:uid" format in objectbox-model.json (e.g. "1:7348726389543").
+String _parseIdFromIdUid(dynamic value) {
+  if (value == null) return '';
+  final str = value.toString();
+  if (str.contains(':')) {
+    return str.split(':').first;
+  }
+  return str;
+}
+
+int _parseIdIntFromIdUid(dynamic value) {
+  final idStr = _parseIdFromIdUid(value);
+  return int.tryParse(idStr) ?? 0;
+}
+
 /// Parsed ObjectBox model schema from objectbox-model.json,
 /// or discovered directly from the LMDB file (no JSON needed).
 class ObjectBoxModel {
@@ -27,12 +43,18 @@ class ObjectBoxModel {
     final relationsJson = json['relations'] as List<dynamic>? ?? [];
 
     return ObjectBoxModel(
-      entities: entitiesJson.map((e) => EntityInfo.fromJson(e as Map<String, dynamic>)).toList(),
-      indexes: indexesJson.map((e) => IndexInfo.fromJson(e as Map<String, dynamic>)).toList(),
-      relations: relationsJson.map((e) => RelationInfo.fromJson(e as Map<String, dynamic>)).toList(),
-      lastEntityId: json['_lastEntityId'] ?? 0,
-      lastIndexId: json['_lastIndexId'] ?? 0,
-      lastRelationId: json['_lastRelationId'] ?? 0,
+      entities: entitiesJson
+          .map((e) => EntityInfo.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      indexes: indexesJson
+          .map((e) => IndexInfo.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      relations: relationsJson
+          .map((e) => RelationInfo.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      lastEntityId: _parseIdIntFromIdUid(json['_lastEntityId']),
+      lastIndexId: _parseIdIntFromIdUid(json['_lastIndexId']),
+      lastRelationId: _parseIdIntFromIdUid(json['_lastRelationId']),
       modelVersion: json['_modelVersion'] ?? 0,
       discovered: false,
     );
@@ -82,11 +104,15 @@ class EntityInfo {
     final idxJson = json['indexes'] as List<dynamic>? ?? [];
 
     return EntityInfo(
-      id: json['id']?.toString() ?? '',
+      id: _parseIdFromIdUid(json['id']),
       name: json['name'] ?? '',
-      lastPropertyId: json['lastPropertyId'] ?? 0,
-      properties: propsJson.map((p) => PropertyInfo.fromJson(p as Map<String, dynamic>)).toList(),
-      entityIndexes: idxJson.map((i) => IndexInfo.fromJson(i as Map<String, dynamic>)).toList(),
+      lastPropertyId: _parseIdIntFromIdUid(json['lastPropertyId']),
+      properties: propsJson
+          .map((p) => PropertyInfo.fromJson(p as Map<String, dynamic>))
+          .toList(),
+      entityIndexes: idxJson
+          .map((i) => IndexInfo.fromJson(i as Map<String, dynamic>))
+          .toList(),
       discovered: false,
     );
   }
@@ -106,6 +132,8 @@ class EntityInfo {
 }
 
 enum PropertyType {
+  // OBXPropertyType values from ObjectBox C API / objectbox-dart source
+  unknown(0, 'Unknown'),
   bool(1, 'bool'),
   byte(2, 'byte'),
   short(3, 'short'),
@@ -116,12 +144,21 @@ enum PropertyType {
   double_(8, 'double'),
   string(9, 'String'),
   date(10, 'Date'),
-  dateNano(11, 'DateNano'),
-  relation(12, 'Relation'),
-  vectorFloat32(13, 'List<float>'),
-  byteVector(14, 'List<byte>'),
-  byteVectorCompressed(15, 'List<byte>(compressed)'),
-  unknown(0, 'Unknown'),
+  relation(11, 'Relation'),
+  dateNano(12, 'DateNano'),
+  flex(13, 'Flex'),
+  boolVector(22, 'List<bool>'),
+  byteVector(23, 'List<byte>'),
+  shortVector(24, 'List<short>'),
+  charVector(25, 'List<char>'),
+  intVector(26, 'List<int>'),
+  longVector(27, 'List<long>'),
+  floatVector(28, 'List<float>'),
+  doubleVector(29, 'List<double>'),
+  stringVector(30, 'List<String>'),
+  dateVector(31, 'List<Date>'),
+  dateNanoVector(32, 'List<DateNano>'),
+  // Discovered types (not in ObjectBox schema, inferred at runtime)
   discoveredInt(100, 'int?'),
   discoveredLong(101, 'long?'),
   discoveredDouble(102, 'double?'),
@@ -160,11 +197,11 @@ class PropertyInfo {
 
   factory PropertyInfo.fromJson(Map<String, dynamic> json) {
     return PropertyInfo(
-      id: json['id']?.toString() ?? '',
+      id: _parseIdFromIdUid(json['id']),
       name: json['name'] ?? '',
       type: json['type'] ?? 0,
       flags: json['flags'] ?? 0,
-      indexId: json['indexId']?.toString(),
+      indexId: _parseIdFromIdUid(json['indexId']),
       relationTarget: json['relationTarget'],
     );
   }
@@ -181,9 +218,33 @@ class PropertyInfo {
 
   PropertyType get propertyType => PropertyType.fromValue(type);
 
+  /// OBXPropertyFlags.ID = 1: 64-bit long property representing the entity ID
   bool get isId => (flags & 1) != 0;
-  bool get isNonNull => (flags & 2) != 0;
-  bool get isIndexed => indexId != null;
+
+  /// OBXPropertyFlags.NON_PRIMITIVE_TYPE = 2: nullable wrapper type (Java/Kotlin)
+  bool get isNonPrimitiveType => (flags & 2) != 0;
+
+  /// OBXPropertyFlags.NOT_NULL = 4: property must not be null
+  bool get isNotNull => (flags & 4) != 0;
+
+  /// OBXPropertyFlags.INDEXED = 8: property has an index
+  bool get isIndexedFlag => (flags & 8) != 0;
+
+  /// OBXPropertyFlags.UNIQUE = 32: property has a unique index
+  bool get isUnique => (flags & 32) != 0;
+
+  /// OBXPropertyFlags.ID_SELF_ASSIGNABLE = 128: allows developer-assigned IDs
+  bool get isIdSelfAssignable => (flags & 128) != 0;
+
+  /// OBXPropertyFlags.VIRTUAL = 1024: no dedicated field in entity class
+  /// (e.g., target ID of ToOne relation)
+  bool get isVirtual => (flags & 1024) != 0;
+
+  /// OBXPropertyFlags.UNSIGNED = 8192: integer is treated as unsigned
+  bool get isUnsigned => (flags & 8192) != 0;
+
+  /// Backward-compatible: true if property has an index (by flag or indexId)
+  bool get isIndexed => isIndexedFlag || indexId != null;
 
   String get displayType => propertyType.displayName;
 }
@@ -206,10 +267,10 @@ class IndexInfo {
   factory IndexInfo.fromJson(Map<String, dynamic> json) {
     final propIds = json['propertyIds'] as List<dynamic>? ?? [];
     return IndexInfo(
-      id: json['id']?.toString() ?? '',
+      id: _parseIdFromIdUid(json['id']),
       name: json['name'] ?? '',
-      entityId: json['entityId'] ?? 0,
-      propertyIds: propIds.map((e) => e.toString()).toList(),
+      entityId: _parseIdIntFromIdUid(json['entityId']),
+      propertyIds: propIds.map((e) => _parseIdFromIdUid(e)).toList(),
       flags: json['flags'] ?? 0,
     );
   }
@@ -230,10 +291,10 @@ class RelationInfo {
 
   factory RelationInfo.fromJson(Map<String, dynamic> json) {
     return RelationInfo(
-      id: json['id']?.toString() ?? '',
+      id: _parseIdFromIdUid(json['id']),
       name: json['name'] ?? '',
-      sourceEntityId: json['sourceEntityId'] ?? 0,
-      targetEntityId: json['targetEntityId'] ?? 0,
+      sourceEntityId: _parseIdIntFromIdUid(json['sourceEntityId']),
+      targetEntityId: _parseIdIntFromIdUid(json['targetEntityId']),
     );
   }
 }

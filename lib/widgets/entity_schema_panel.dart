@@ -197,8 +197,12 @@ class EntitySchemaPanel extends StatelessWidget {
   String _propertyFlags(PropertyInfo prop) {
     final flags = <String>[];
     if (prop.isId) flags.add('ID');
-    if (prop.isNonNull) flags.add('NOT NULL');
+    if (prop.isNotNull) flags.add('NOT NULL');
+    if (prop.isUnique) flags.add('UNIQUE');
     if (prop.isIndexed) flags.add('INDEXED');
+    if (prop.isVirtual) flags.add('VIRTUAL');
+    if (prop.isUnsigned) flags.add('UNSIGNED');
+    if (prop.isIdSelfAssignable) flags.add('SELF_ASSIGN_ID');
     return flags.isEmpty ? '-' : flags.join(', ');
   }
 }

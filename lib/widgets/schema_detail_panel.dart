@@ -30,7 +30,10 @@ class SchemaDetailPanel extends StatelessWidget {
               if (discovered) ...[
                 const SizedBox(width: 12),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.secondaryContainer,
                     borderRadius: BorderRadius.circular(12),
@@ -56,8 +59,11 @@ class SchemaDetailPanel extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.info_outline,
-                        size: 18, color: theme.colorScheme.onSecondaryContainer),
+                    Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: theme.colorScheme.onSecondaryContainer,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -77,8 +83,12 @@ class SchemaDetailPanel extends StatelessWidget {
 
           // File info card
           _buildSection(context, 'Database Files', [
-            _buildInfoCard(context,
-                fileInfo.entries.map((e) => '${e.key}: ${_formatSize(e.value)}').toList()),
+            _buildInfoCard(
+              context,
+              fileInfo.entries
+                  .map((e) => '${e.key}: ${_formatSize(e.value)}')
+                  .toList(),
+            ),
           ]),
           const SizedBox(height: 16),
 
@@ -95,8 +105,7 @@ class SchemaDetailPanel extends StatelessWidget {
           if (!discovered) const SizedBox(height: 16),
 
           // Entities overview
-          _buildSection(context,
-              'Entities (${model.entities.length})', [
+          _buildSection(context, 'Entities (${model.entities.length})', [
             for (final entity in model.entities) ...[
               _buildEntityCard(context, entity),
               const SizedBox(height: 8),
@@ -113,7 +122,8 @@ class SchemaDetailPanel extends StatelessWidget {
                   leading: const Icon(Icons.link, size: 18),
                   title: Text(rel.name),
                   subtitle: Text(
-                      'Source ID: ${rel.sourceEntityId} → Target ID: ${rel.targetEntityId}'),
+                    'Source ID: ${rel.sourceEntityId} → Target ID: ${rel.targetEntityId}',
+                  ),
                 ),
             ]),
           ],
@@ -122,12 +132,21 @@ class SchemaDetailPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildSection(BuildContext context, String title, List<Widget> children) {
+  Widget _buildSection(
+    BuildContext context,
+    String title,
+    List<Widget> children,
+  ) {
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+        Text(
+          title,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         const SizedBox(height: 8),
         ...children,
       ],
@@ -153,7 +172,8 @@ class SchemaDetailPanel extends StatelessWidget {
                       text: '${parts[0]}: ',
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
-                    if (parts.length > 1) TextSpan(text: parts.sublist(1).join(': ')),
+                    if (parts.length > 1)
+                      TextSpan(text: parts.sublist(1).join(': ')),
                   ],
                 ),
               ),
@@ -174,35 +194,51 @@ class SchemaDetailPanel extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.table_chart, size: 18, color: theme.colorScheme.primary),
+                Icon(
+                  Icons.table_chart,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
                 const SizedBox(width: 8),
-                Text(entity.name,
-                    style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  entity.name,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const Spacer(),
                 if (!entity.discovered)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       'ID: ${entity.id}',
-                      style: theme.textTheme.labelSmall
-                          ?.copyWith(color: theme.colorScheme.onPrimaryContainer),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
                     ),
                   ),
                 if (entity.discovered)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.tertiaryContainer,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       'Discovered',
-                      style: theme.textTheme.labelSmall
-                          ?.copyWith(color: theme.colorScheme.onTertiaryContainer),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onTertiaryContainer,
+                      ),
                     ),
                   ),
               ],
@@ -220,7 +256,9 @@ class SchemaDetailPanel extends StatelessWidget {
                 children: [
                   TableRow(
                     decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)),
+                      color: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.5),
+                    ),
                     children: [
                       _tableHeader('Property', theme),
                       _tableHeader('Type', theme),
@@ -229,12 +267,14 @@ class SchemaDetailPanel extends StatelessWidget {
                     ],
                   ),
                   for (final prop in entity.properties)
-                    TableRow(children: [
-                      _tableCell(prop.name, theme),
-                      _tableCell(prop.displayType, theme),
-                      _tableCell(_propertyFlags(prop), theme),
-                      _tableCell(prop.id, theme),
-                    ]),
+                    TableRow(
+                      children: [
+                        _tableCell(prop.name, theme),
+                        _tableCell(prop.displayType, theme),
+                        _tableCell(_propertyFlags(prop), theme),
+                        _tableCell(prop.id, theme),
+                      ],
+                    ),
                 ],
               ),
             if (entity.properties.isEmpty)
@@ -242,8 +282,9 @@ class SchemaDetailPanel extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
                   'Fields will be discovered when you click this entity →',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
           ],
@@ -255,7 +296,12 @@ class SchemaDetailPanel extends StatelessWidget {
   Widget _tableHeader(String text, ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      child: Text(text, style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.bold)),
+      child: Text(
+        text,
+        style: theme.textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 
@@ -269,8 +315,12 @@ class SchemaDetailPanel extends StatelessWidget {
   String _propertyFlags(PropertyInfo prop) {
     final flags = <String>[];
     if (prop.isId) flags.add('ID');
-    if (prop.isNonNull) flags.add('NOT NULL');
+    if (prop.isNotNull) flags.add('NOT NULL');
+    if (prop.isUnique) flags.add('UNIQUE');
     if (prop.isIndexed) flags.add('INDEXED');
+    if (prop.isVirtual) flags.add('VIRTUAL');
+    if (prop.isUnsigned) flags.add('UNSIGNED');
+    if (prop.isIdSelfAssignable) flags.add('SELF_ASSIGN_ID');
     return flags.isEmpty ? '-' : flags.join(', ');
   }
 

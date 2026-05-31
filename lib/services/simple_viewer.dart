@@ -3,8 +3,10 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:path/path.dart' as p;
+import '../models/objectbox_model.dart';
 
 /// Simplified ObjectBox viewer - focuses on getting data to display
+/// Note: This is a legacy viewer; prefer [ObjectBoxService] for full functionality.
 class SimpleObjectBoxViewer {
   late Uint8List _data;
   late ByteData _bd;
@@ -18,7 +20,8 @@ class SimpleObjectBoxViewer {
     // Skip 16-byte prefix
     var start = 0;
     if (rawBytes.length >= 16 &&
-        ByteData.sublistView(rawBytes, 16).getUint32(0, Endian.little) == 0xBEEFC0DE) {
+        ByteData.sublistView(rawBytes, 16).getUint32(0, Endian.little) ==
+            0xBEEFC0DE) {
       start = 16;
     }
     _data = rawBytes.sublist(start);
@@ -29,23 +32,25 @@ class SimpleObjectBoxViewer {
 
     // Discover entities by string search
     final entities = _discoverEntities();
-    
+
     final model = ObjectBoxModel.discovered([]);
     for (var i = 0; i < entities.length; i++) {
       final e = entities[i];
       final entityInfo = EntityInfo.discovered(e.name);
-      entityInfo.id = (i + 1).toString(); // Sequential ID
-      
+      entityInfo.id = (i + 1).toString();
+
       // Add generic properties (will be renamed when we parse schema)
       for (var j = 0; j < e.propertyCount; j++) {
-        entityInfo.properties.add(PropertyInfo(
-          id: j.toString(),
-          name: 'field_$j',
-          type: 'String', // Default to String
-          flags: j == 0 ? 1 : 0, // First field is likely ID
-        ));
+        entityInfo.properties.add(
+          PropertyInfo(
+            id: j.toString(),
+            name: 'field_$j',
+            type: PropertyType.string.value,
+            flags: j == 0 ? 1 : 0, // First field is likely ID
+          ),
+        );
       }
-      
+
       model.entities.add(entityInfo);
     }
 
@@ -61,18 +66,22 @@ class SimpleObjectBoxViewer {
     for (var i = 0; i < _data.length - namePattern.length; i++) {
       if (_data[i] >= 65 && _data[i] <= 122) {
         var end = i;
-        while (end < _data.length && _data[end] >= 32 && _data[end] <= 122) end++;
-        
+        while (end < _data.length && _data[end] >= 32 && _data[end] <= 122) {
+          end++;
+        }
+
         if (end - i >= 5 && end - i <= 50) {
           final str = String.fromCharCodes(_data.sublist(i, end));
           if (str.endsWith('Entity') && !seen.contains(str)) {
             seen.add(str);
-            
+
             // Try to parse entity FlatBuffer
             final parsed = _parseEntityNearby(i);
             if (parsed != null) {
               entities.add(_SimpleEntity(parsed.name, parsed.propertyCount));
-              print('Found entity: ${parsed.name} (${parsed.propertyCount} props)');
+              print(
+                'Found entity: ${parsed.name} (${parsed.propertyCount} props)',
+              );
             }
           }
         }
@@ -93,10 +102,13 @@ class SimpleObjectBoxViewer {
           final vtableSize = _bd.getUint16(vtableStart, Endian.little);
           if (vtableSize >= 8 && vtableSize <= 128) {
             final numFields = (vtableSize - 4) ~/ 2;
-            
+
             // Try to read field[3] as name
             if (numFields > 3) {
-              final nameFieldOff = _bd.getUint16(vtableStart + 4 + 3 * 2, Endian.little);
+              final nameFieldOff = _bd.getUint16(
+                vtableStart + 4 + 3 * 2,
+                Endian.little,
+              );
               if (nameFieldOff > 0) {
                 final nameAddr = j + nameFieldOff;
                 if (nameAddr + 4 <= _data.length) {
@@ -105,27 +117,40 @@ class SimpleObjectBoxViewer {
                     final strAddr = nameAddr + strOff;
                     if (strAddr + 4 <= _data.length) {
                       final strLen = _bd.getUint32(strAddr, Endian.little);
-                      if (strLen > 0 && strLen < 100 && strAddr + 4 + strLen <= _data.length) {
-                        final name = String.fromCharCodes(_data.sublist(strAddr + 4, strAddr + 4 + strLen));
-                        
+                      if (strLen > 0 &&
+                          strLen < 100 &&
+                          strAddr + 4 + strLen <= _data.length) {
+                        final name = String.fromCharCodes(
+                          _data.sublist(strAddr + 4, strAddr + 4 + strLen),
+                        );
+
                         // Count properties from field[4]
                         var propCount = 0;
                         if (numFields > 4) {
-                          final propsFieldOff = _bd.getUint16(vtableStart + 4 + 4 * 2, Endian.little);
+                          final propsFieldOff = _bd.getUint16(
+                            vtableStart + 4 + 4 * 2,
+                            Endian.little,
+                          );
                           if (propsFieldOff > 0) {
                             final propsAddr = j + propsFieldOff;
                             if (propsAddr + 4 <= _data.length) {
-                              final vecOff = _bd.getUint32(propsAddr, Endian.little);
+                              final vecOff = _bd.getUint32(
+                                propsAddr,
+                                Endian.little,
+                              );
                               if (vecOff > 0 && vecOff < 10000) {
                                 final vecTable = propsAddr + vecOff;
                                 if (vecTable + 4 <= _data.length) {
-                                  propCount = _bd.getUint32(vecTable, Endian.little);
+                                  propCount = _bd.getUint32(
+                                    vecTable,
+                                    Endian.little,
+                                  );
                                 }
                               }
                             }
                           }
                         }
-                        
+
                         return _ParsedEntitySimple(name, propCount);
                       }
                     }
@@ -140,7 +165,10 @@ class SimpleObjectBoxViewer {
     return null;
   }
 
-  Future<List<EntityRow>> readEntityData(String dbPath, EntityInfo entity) async {
+  Future<List<EntityRow>> readEntityData(
+    String dbPath,
+    EntityInfo entity,
+  ) async {
     // For now, return mock data
     // TODO: Implement actual data reading
     return [];
@@ -157,31 +185,4 @@ class _ParsedEntitySimple {
   final String name;
   final int propertyCount;
   _ParsedEntitySimple(this.name, this.propertyCount);
-}
-
-// Stub classes (copy from objectbox_model.dart)
-class ObjectBoxModel {
-  final List<EntityInfo> entities = [];
-  static ObjectBoxModel discovered(List<EntityInfo> entities) => ObjectBoxModel();
-}
-
-class EntityInfo {
-  String id = '0';
-  String name = '';
-  final List<PropertyInfo> properties = [];
-  EntityInfo.discovered(this.name);
-}
-
-class PropertyInfo {
-  String id = '0';
-  String name = '';
-  String type = 'String';
-  int flags = 0;
-  PropertyInfo({required this.id, required this.name, required this.type, required this.flags});
-}
-
-class EntityRow {
-  final int id;
-  final Map<String, dynamic> values;
-  EntityRow({required this.id, required this.values});
 }

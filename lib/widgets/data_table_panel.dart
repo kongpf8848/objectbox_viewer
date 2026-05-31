@@ -446,7 +446,7 @@ class _EntityTable extends StatelessWidget {
   String _getColumnTooltip(String name, PropertyInfo? prop) {
     if (name == 'id') return 'Object ID (auto-assigned)';
     if (prop == null) return name;
-    return '${prop.displayType}${prop.isNonNull ? ' (NOT NULL)' : ''}${prop.isId ? ' (ID)' : ''}';
+    return '${prop.displayType}${prop.isNotNull ? ' (NOT NULL)' : ''}${prop.isId ? ' (ID)' : ''}';
   }
 
   void _showDetail(BuildContext context, String name, dynamic value) {
