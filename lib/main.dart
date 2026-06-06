@@ -28,7 +28,10 @@ class ObjectBoxViewerApp extends StatelessWidget {
   ThemeData _buildTheme(Brightness brightness) {
     final colorScheme = brightness == Brightness.light
         ? ColorScheme.fromSeed(seedColor: const Color(0xFF0277BD))
-        : ColorScheme.fromSeed(seedColor: const Color(0xFF4FC3F7), brightness: Brightness.dark);
+        : ColorScheme.fromSeed(
+            seedColor: const Color(0xFF4FC3F7),
+            brightness: Brightness.dark,
+          );
 
     return ThemeData(
       colorScheme: colorScheme,
@@ -83,11 +86,17 @@ class _AppShell extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline, size: 14, color: theme.colorScheme.onSurfaceVariant),
+          Icon(
+            Icons.info_outline,
+            size: 14,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
           const SizedBox(width: 6),
           Text(
             'ObjectBox Dart Database Viewer · Select File → Open Database to begin',
-            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -107,9 +116,9 @@ class _AppShell extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }

@@ -13,6 +13,12 @@
 - [tool/parse_schema_correct.dart](file://tool/parse_schema_correct.dart)
 </cite>
 
+## 更新摘要
+**变更内容**
+- 实体Schema面板改进了属性标志显示，提供全面的标志枚举
+- 新增了完整的属性标志解析和显示功能
+- 扩展了属性类型标志的识别范围
+
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
@@ -27,6 +33,8 @@
 ## 简介
 
 Schema 详情面板是 ObjectBox 查看器应用中的一个核心功能模块，用于展示和管理 ObjectBox 数据库的模式信息。该面板提供了数据库文件信息、实体概览、属性详情以及关系信息的可视化展示，支持从数据库文件直接解析模式信息而无需依赖 objectbox-model.json 文件。
+
+**更新** 新增了全面的属性标志显示功能，能够准确解析和展示属性的各种标志状态。
 
 ## 项目结构
 
@@ -92,6 +100,7 @@ class SchemaDetailPanel {
 -_buildSection(context,title,children) Widget
 -_buildInfoCard(context,lines) Widget
 -_buildEntityCard(context,entity) Widget
+-_propertyFlags(prop) String
 }
 class EntitySchemaPanel {
 +EntityInfo entity
@@ -100,6 +109,7 @@ class EntitySchemaPanel {
 -_buildInfoCard(context,lines) Widget
 -_tableHeader(text,theme) Widget
 -_tableCell(text,theme) Widget
+-_propertyFlags(prop) String
 }
 class ObjectBoxModel {
 +EntityInfo[] entities
@@ -124,8 +134,15 @@ class PropertyInfo {
 +int flags
 +String displayType
 +bool isId
-+bool isNonNull
++bool isNotNull
 +bool isIndexed
++bool isUnique
++bool isVirtual
++bool isUnsigned
++bool isIdSelfAssignable
++propertyType PropertyType
++isIndexedFlag bool
++isNonPrimitiveType bool
 }
 SchemaDetailPanel --> ObjectBoxModel
 EntitySchemaPanel --> EntityInfo
@@ -134,9 +151,9 @@ EntityInfo --> PropertyInfo
 ```
 
 **图表来源**
-- [lib/widgets/schema_detail_panel.dart:1-283](file://lib/widgets/schema_detail_panel.dart#L1-L283)
-- [lib/widgets/entity_schema_panel.dart:1-205](file://lib/widgets/entity_schema_panel.dart#L1-L205)
-- [lib/models/objectbox_model.dart:1-248](file://lib/models/objectbox_model.dart#L1-L248)
+- [lib/widgets/schema_detail_panel.dart:1-333](file://lib/widgets/schema_detail_panel.dart#L1-L333)
+- [lib/widgets/entity_schema_panel.dart:1-209](file://lib/widgets/entity_schema_panel.dart#L1-L209)
+- [lib/models/objectbox_model.dart:1-309](file://lib/models/objectbox_model.dart#L1-L309)
 
 ### 数据流处理
 
@@ -166,9 +183,9 @@ Panel->>Panel : 展示实体信息
 - [lib/widgets/home_page.dart:111-132](file://lib/widgets/home_page.dart#L111-L132)
 
 **章节来源**
-- [lib/widgets/schema_detail_panel.dart:1-283](file://lib/widgets/schema_detail_panel.dart#L1-L283)
-- [lib/widgets/entity_schema_panel.dart:1-205](file://lib/widgets/entity_schema_panel.dart#L1-L205)
-- [lib/models/objectbox_model.dart:1-248](file://lib/models/objectbox_model.dart#L1-L248)
+- [lib/widgets/schema_detail_panel.dart:1-333](file://lib/widgets/schema_detail_panel.dart#L1-L333)
+- [lib/widgets/entity_schema_panel.dart:1-209](file://lib/widgets/entity_schema_panel.dart#L1-L209)
+- [lib/models/objectbox_model.dart:1-309](file://lib/models/objectbox_model.dart#L1-L309)
 
 ## 架构概览
 
@@ -291,7 +308,7 @@ EntityCard --> Property : 包含
 - [lib/widgets/schema_detail_panel.dart:167-253](file://lib/widgets/schema_detail_panel.dart#L167-L253)
 
 **章节来源**
-- [lib/widgets/schema_detail_panel.dart:1-283](file://lib/widgets/schema_detail_panel.dart#L1-L283)
+- [lib/widgets/schema_detail_panel.dart:1-333](file://lib/widgets/schema_detail_panel.dart#L1-L333)
 
 ### 实体 Schema 面板组件
 
@@ -318,8 +335,37 @@ InfoCard --> PropertyTable
 **图表来源**
 - [lib/widgets/entity_schema_panel.dart:14-145](file://lib/widgets/entity_schema_panel.dart#L14-L145)
 
+#### 属性标志显示功能
+
+**更新** 实体Schema面板新增了全面的属性标志显示功能，能够准确解析和展示属性的各种标志状态：
+
+```mermaid
+flowchart TD
+PropertyFlags[属性标志显示] --> FlagParsing[标志解析]
+FlagParsing --> IsId[ID标志]
+FlagParsing --> IsNotNull[非空标志]
+FlagParsing --> IsUnique[唯一标志]
+FlagParsing --> IsIndexed[索引标志]
+FlagParsing --> IsVirtual[虚拟标志]
+FlagParsing --> IsUnsigned[无符号标志]
+FlagParsing --> IsIdSelfAssignable[自分配ID标志]
+IsId --> FlagDisplay[标志显示]
+IsNotNull --> FlagDisplay
+IsUnique --> FlagDisplay
+IsIndexed --> FlagDisplay
+IsVirtual --> FlagDisplay
+IsUnsigned --> FlagDisplay
+IsIdSelfAssignable --> FlagDisplay
+FlagDisplay --> BadgeRendering[徽章渲染]
+BadgeRendering --> UIOutput[用户界面输出]
+```
+
+**图表来源**
+- [lib/widgets/entity_schema_panel.dart:197-207](file://lib/widgets/entity_schema_panel.dart#L197-L207)
+- [lib/widgets/schema_detail_panel.dart:315-325](file://lib/widgets/schema_detail_panel.dart#L315-L325)
+
 **章节来源**
-- [lib/widgets/entity_schema_panel.dart:1-205](file://lib/widgets/entity_schema_panel.dart#L1-L205)
+- [lib/widgets/entity_schema_panel.dart:1-209](file://lib/widgets/entity_schema_panel.dart#L1-L209)
 
 ### 数据模型结构
 
@@ -370,10 +416,25 @@ OBJECTBOX_MODEL ||--o{ RELATION_INFO : 描述
 ```
 
 **图表来源**
-- [lib/models/objectbox_model.dart:3-248](file://lib/models/objectbox_model.dart#L3-L248)
+- [lib/models/objectbox_model.dart:3-309](file://lib/models/objectbox_model.dart#L3-L309)
+
+#### 属性标志枚举定义
+
+**更新** 新增了完整的属性标志枚举定义，支持多种属性标志的精确识别：
+
+| 标志常量 | 数值 | 含义 | 显示标签 |
+|----------|------|------|----------|
+| OBXPropertyFlags_ID | 1 | 实体ID属性 | ID |
+| OBXPropertyFlags_NON_PRIMITIVE_TYPE | 2 | 可空包装类型 | NON_PRIMITIVE_TYPE |
+| OBXPropertyFlags_NOT_NULL | 4 | 非空约束 | NOT NULL |
+| OBXPropertyFlags_INDEXED | 8 | 索引属性 | INDEXED |
+| OBXPropertyFlags_UNIQUE | 32 | 唯一索引 | UNIQUE |
+| OBXPropertyFlags_ID_SELF_ASSIGNABLE | 128 | 开发者可分配ID | SELF_ASSIGN_ID |
+| OBXPropertyFlags_VIRTUAL | 1024 | 虚拟属性 | VIRTUAL |
+| OBXPropertyFlags_UNSIGNED | 8192 | 无符号整数 | UNSIGNED |
 
 **章节来源**
-- [lib/models/objectbox_model.dart:1-248](file://lib/models/objectbox_model.dart#L1-L248)
+- [lib/models/objectbox_model.dart:1-309](file://lib/models/objectbox_model.dart#L1-L309)
 
 ## 依赖关系分析
 
@@ -483,6 +544,20 @@ OptimizeMemory --> End[完成]
 2. 检查实体名称是否符合命名约定
 3. 验证数据库文件的完整性
 
+#### 属性标志显示异常
+
+**问题描述**：属性标志显示不正确或缺失
+
+**可能原因**：
+1. 属性标志位解析错误
+2. 标志枚举映射不完整
+3. 数据库文件中标志信息缺失
+
+**解决步骤**：
+1. 检查属性标志位的二进制解析逻辑
+2. 验证标志枚举与实际标志值的对应关系
+3. 确认数据库文件中标志信息的完整性
+
 **章节来源**
 - [lib/widgets/schema_detail_panel.dart:45-75](file://lib/widgets/schema_detail_panel.dart#L45-L75)
 - [lib/services/objectbox_service.dart:80-113](file://lib/services/objectbox_service.dart#L80-L113)
@@ -491,14 +566,18 @@ OptimizeMemory --> End[完成]
 
 Schema 详情面板作为 ObjectBox 查看器的核心功能模块，成功实现了数据库模式信息的可视化展示。通过采用响应式架构设计和高效的二进制数据解析技术，该面板能够提供流畅的用户体验，同时支持从数据库文件直接解析模式信息的高级功能。
 
+**更新** 最新的改进包括了全面的属性标志显示功能，能够准确解析和展示属性的各种标志状态，包括ID、非空、唯一、索引、虚拟、无符号和自分配ID等标志。这一功能增强了用户对数据库模式结构的理解，提供了更丰富的元数据信息。
+
 系统的主要优势包括：
 - **灵活性**：支持从数据库文件直接解析模式信息，无需依赖 JSON 文件
 - **可扩展性**：模块化的架构设计便于功能扩展和维护
 - **性能优化**：针对大型数据库文件进行了专门的性能优化
 - **用户友好**：直观的界面设计和清晰的信息层次结构
+- **标志解析**：全面的属性标志显示功能，提供精确的元数据信息
 
 未来可以考虑的功能增强包括：
 - 添加模式对比功能
 - 支持更多数据库格式
 - 增强搜索和过滤能力
 - 提供更详细的性能分析信息
+- 扩展标志显示的可视化效果

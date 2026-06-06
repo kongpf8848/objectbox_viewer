@@ -186,6 +186,11 @@ class PropertyInfo {
   final String? indexId;
   final String? relationTarget;
 
+  /// ObjectBox property ID (from schema IdUid, lower 32 bits).
+  /// Used to map FlatBuffer field index in data entries: fieldIndex = propertyId - 1.
+  /// When 0, falls back to sequential index.
+  final int propertyId;
+
   PropertyInfo({
     required this.id,
     required this.name,
@@ -193,16 +198,19 @@ class PropertyInfo {
     required this.flags,
     this.indexId,
     this.relationTarget,
+    this.propertyId = 0,
   });
 
   factory PropertyInfo.fromJson(Map<String, dynamic> json) {
+    final idStr = _parseIdFromIdUid(json['id']);
     return PropertyInfo(
-      id: _parseIdFromIdUid(json['id']),
+      id: idStr,
       name: json['name'] ?? '',
       type: json['type'] ?? 0,
       flags: json['flags'] ?? 0,
       indexId: _parseIdFromIdUid(json['indexId']),
       relationTarget: json['relationTarget'],
+      propertyId: int.tryParse(idStr) ?? 0,
     );
   }
 

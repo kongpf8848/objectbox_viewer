@@ -132,6 +132,7 @@ class _ObxParser {
             name: f.name,
             type: f.obxType,
             flags: f.isId ? 1 : 0,
+            propertyId: f.propId,
           ),
         );
       }
@@ -381,14 +382,18 @@ class _ObxParser {
     // The only reliable way to distinguish entries from different entities is by
     // comparing the FlatBuffer vtable field count against the entity's schema.
     //
-    // Empirically, FlatBuffer numFields = entity.properties.length + 1.
-    // The "+1" accounts for an extra ObjectBox-internal field slot in the vtable
-    // (likely the objectId field stored at field index 0, which the schema parser
-    // counts separately as the "id" property but the vtable always has the slot).
-    // More precisely: schema properties includes the id property (flags & 1),
-    // and the FlatBuffer vtable also has it, but OBX internally adds one extra
-    // slot for metadata — hence numFields is always schema.length + 1.
-    final schemaFieldCount = entity.properties.length + 1;
+    // When property IDs are available, the expected numFields is computed from
+    // the maximum property ID: numFields = max(propertyId) + 1 (because field[0]
+    // is the object ID, and field[N] corresponds to property ID N+1).
+    // When property IDs are not available, fall back to properties.length + 1.
+    final maxPropertyId = entity.properties
+        .map((p) => p.propertyId)
+        .where((id) => id > 0)
+        .fold<int>(0, (a, b) => a > b ? a : b);
+    final schemaFieldCount = maxPropertyId > 0
+        ? maxPropertyId +
+              1 // field[0]..field[maxPropertyId]
+        : entity.properties.length + 1; // fallback
 
     for (var pgno = 0; pgno < _numPages; pgno++) {
       if (_freedPages.contains(pgno)) continue;
@@ -408,11 +413,45 @@ class _ObxParser {
         final row = _parseDataEntry(entry, entity);
         if (row == null) continue;
 
-        // If parsed row has extra discovered fields, it doesn't match this entity schema
+        // If parsed row has extra discovered fields (sequential mapping fallback),
+        // it doesn't match this entity schema.
         final hasExtraFields = row.values.keys.any(
           (k) => k.startsWith('field_'),
         );
         if (hasExtraFields) continue;
+
+        // With property ID-based mapping, check that enough properties were
+        // successfully resolved. If only 'id' was found but the entity has
+        // many properties, this entry likely belongs to a different entity.
+        // Also check that all non-id properties with known types have values;
+        // if a required property maps to a vtable field with offset=0, the
+        // entry doesn't belong to this entity.
+        final nonIdValueCount = row.values.keys.where((k) => k != 'id').length;
+        final expectedNonIdProps = entity.properties
+            .where((p) => !p.isId)
+            .length;
+        if (expectedNonIdProps > 2 &&
+            nonIdValueCount < (expectedNonIdProps * 0.5).ceil()) {
+          continue;
+        }
+        // Reject if too many non-id properties with known types are missing
+        // from the parsed row. This indicates the entry likely belongs to a different
+        // entity. Allow up to 30% missing (nullable properties or deleted IDs).
+        final knownNonIdProps = entity.properties
+            .where(
+              (p) =>
+                  !p.isId &&
+                  p.type != 0 &&
+                  p.type != PropertyType.unknown.value,
+            )
+            .toList();
+        final missingKnownCount = knownNonIdProps
+            .where((p) => !row.values.containsKey(p.name))
+            .length;
+        if (knownNonIdProps.length > 2 &&
+            missingKnownCount > (knownNonIdProps.length * 0.3).ceil()) {
+          continue;
+        }
 
         // Skip invalid/empty entries with objectId == 0
         if (row.id == 0) continue;
@@ -717,11 +756,33 @@ class _ObxParser {
     String? name;
     int obxType = 0;
     int flags = 0;
+    int propertyId = propIndex + 1; // default: sequential
 
     // ObjectBox Property FlatBuffer field layout (from actual data analysis):
-    //   Modern schema: field[1] = id, field[6] = name, field[7] = type
-    //   Older schema:  field[0] = id, field[1] = name, field[2] = type
+    //   Modern schema: field[1] = id (IdUid), field[6] = name, field[7] = type
+    //   Older schema:  field[0] = id (IdUid), field[1] = name, field[2] = type
     // Try modern layout first.
+
+    // Parse property ID from IdUid field (modern: field[1], older: field[0])
+    // ObjectBox IdUid format: int64 where lower 32 bits = local ID, upper 32 bits = UID
+    for (final idFieldIndex in const [1, 0]) {
+      if (propertyId != propIndex + 1) break; // already found
+      if (numFields <= idFieldIndex) continue;
+      final idFieldOff = _bd.getUint16(
+        vtableStart + 4 + idFieldIndex * 2,
+        Endian.little,
+      );
+      if (idFieldOff > 0) {
+        final idFieldAddr = tableStart + idFieldOff;
+        if (idFieldAddr + 8 <= _data.length) {
+          final idUid = _bd.getUint64(idFieldAddr, Endian.little);
+          final localId = idUid & 0xFFFFFFFF;
+          if (localId > 0 && localId < 10000) {
+            propertyId = localId;
+          }
+        }
+      }
+    }
 
     // Try field[6] for name (modern), then field[1] (older)
     if (numFields > 6) {
@@ -780,7 +841,7 @@ class _ObxParser {
     if (name == null || name.isEmpty) return null;
 
     return _ParsedProperty(
-      propId: propIndex + 1,
+      propId: propertyId,
       name: name,
       obxType: obxType,
       isId: name == 'id' || (flags & 1) != 0,
@@ -795,6 +856,7 @@ class _ObxParser {
     if (strAddr + 4 > _data.length) return null;
     final strLen = _bd.getUint32(strAddr, Endian.little);
     if (strLen <= 0 || strLen > 1000) return null;
+    if (strLen == 0) return ''; // empty string is valid
     if (strAddr + 4 + strLen > _data.length) return null;
     return String.fromCharCodes(
       _data.sublist(strAddr + 4, strAddr + 4 + strLen),
@@ -810,8 +872,9 @@ class _ObxParser {
     final strAddr = fieldAddr + strOff;
     if (strAddr < valStart || strAddr + 4 > valEnd) return null;
     final strLen = _bd.getUint32(strAddr, Endian.little);
-    if (strLen <= 0 || strLen > 10000 || strAddr + 4 + strLen > valEnd)
+    if (strLen < 0 || strLen > 10000 || strAddr + 4 + strLen > valEnd)
       return null;
+    if (strLen == 0) return ''; // empty string is valid
     try {
       final str = utf8.decode(
         _data.sublist(strAddr + 4, strAddr + 4 + strLen),
@@ -825,9 +888,11 @@ class _ObxParser {
 
   // 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸?Data Entry Parsing 闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜鹃梺鍐插帨閸嬫捇鏌嶉崗澶婁壕闂佸啿鍘滈崑鎾绘煃閸忓浜?
   /// Quick check: parse the FlatBuffer vtable of [entry] and return true only if
-  /// the vtable field count equals [expectedFieldCount].
-  /// This is the cheapest way to distinguish entries from different entities that
-  /// share the same LMDB B-tree.
+  /// the vtable field count is compatible with the entity's schema.
+  /// The data FlatBuffer's numFields can be larger than `properties.length + 1`
+  /// when there are gaps in property IDs (e.g., deleted properties). We use
+  /// `numFields >= schemaFieldCount` as a minimum check, because entries with
+  /// fewer fields than expected cannot possibly match this entity.
   bool _entryMatchesSchema(_EntryData entry, int expectedFieldCount) {
     final absEntry = entry.absEntry;
     final valStart = absEntry + 16;
@@ -850,7 +915,14 @@ class _ObxParser {
     final vtableSize = _bd.getUint16(vtableStart, Endian.little);
     if (vtableSize < 4 || vtableSize > 256) return false;
     final numFields = (vtableSize - 4) ~/ 2;
-    return numFields == expectedFieldCount;
+    // Allow numFields >= expectedFieldCount (gaps from deleted properties)
+    // but reject if numFields < expectedFieldCount (missing required fields).
+    // Also apply an upper bound: when property IDs are available,
+    // schemaFieldCount = maxPropertyId + 1, and the actual numFields should
+    // be close to this value (allowing a few extra slots for OBX internals).
+    // A tolerance of 6 allows for a reasonable number of deleted properties.
+    return numFields >= expectedFieldCount &&
+        numFields <= expectedFieldCount + 6;
   }
 
   EntityRow? _parseDataEntry(_EntryData entry, EntityInfo entity) {
@@ -900,6 +972,22 @@ class _ObxParser {
     final values = <String, dynamic>{'id': objectId};
     final props = List<PropertyInfo>.from(entity.properties);
 
+    // Build a lookup map: FlatBuffer field index → PropertyInfo.
+    // In ObjectBox, data FlatBuffer field index = property ID - 1.
+    // field[0] is always the object ID (handled above), so non-id properties
+    // start from field[1] with property ID = fieldIndex + 1.
+    final propByFieldIndex = <int, PropertyInfo>{};
+    for (final prop in props) {
+      final fieldIdx = prop.propertyId > 0 ? prop.propertyId - 1 : -1;
+      if (fieldIdx >= 0 && !prop.isId) {
+        propByFieldIndex[fieldIdx] = prop;
+      }
+    }
+
+    // If no property IDs available (all propertyId == 0), fall back to
+    // sequential mapping for backward compatibility.
+    final useSequentialMapping = propByFieldIndex.isEmpty;
+
     for (var fi = 0; fi < numFields; fi++) {
       final fieldOff = _bd.getUint16(vtableStart + 4 + fi * 2, Endian.little);
       if (fieldOff == 0) continue;
@@ -908,23 +996,40 @@ class _ObxParser {
       if (fieldAddr + 1 > valEnd) continue; // at least 1 byte needed
 
       final PropertyInfo prop;
-      if (fi < props.length) {
-        prop = props[fi];
-        if (prop.isId) continue; // id already extracted from key
-      } else {
-        while (props.length <= fi) {
-          props.add(
-            PropertyInfo.discovered(props.length, PropertyType.unknown),
-          );
+      if (useSequentialMapping) {
+        // Legacy sequential mapping
+        if (fi < props.length) {
+          prop = props[fi];
+          if (prop.isId) continue; // id already extracted from key
+        } else {
+          while (props.length <= fi) {
+            props.add(
+              PropertyInfo.discovered(props.length, PropertyType.unknown),
+            );
+          }
+          prop = props[fi];
         }
-        prop = props[fi];
+      } else {
+        // Property ID-based mapping
+        final mapped = propByFieldIndex[fi];
+        if (mapped != null) {
+          prop = mapped;
+        } else {
+          // field[0] is the id property (already handled above)
+          // Other unmapped fields (gaps from deleted properties) are skipped
+          continue;
+        }
       }
 
       final val = _readFieldValue(valStart, fieldAddr, valEnd, prop.type);
       if (val != null) {
         values[prop.name] = val;
         if (prop.type == PropertyType.unknown.value) {
-          props[fi] = PropertyInfo.discovered(fi, _inferPropertyType(val));
+          // Update the property in the entity's list for future reference
+          final idx = props.indexWhere((p) => p.name == prop.name);
+          if (idx >= 0) {
+            props[idx] = PropertyInfo.discovered(idx, _inferPropertyType(val));
+          }
         }
       }
     }

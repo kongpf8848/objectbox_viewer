@@ -337,7 +337,7 @@ class _DataTablePanelState extends State<DataTablePanel> {
   }
 }
 
-class _EntityTable extends StatelessWidget {
+class _EntityTable extends StatefulWidget {
   final EntityInfo entity;
   final List<EntityRow> rows;
   final bool discovered;
@@ -349,94 +349,125 @@ class _EntityTable extends StatelessWidget {
   });
 
   @override
+  State<_EntityTable> createState() => _EntityTableState();
+}
+
+class _EntityTableState extends State<_EntityTable> {
+  final _horizontalController = ScrollController();
+  final _verticalController = ScrollController();
+
+  @override
+  void dispose() {
+    _horizontalController.dispose();
+    _verticalController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     // Exclude 'id' from property columns since it's shown as the first column
-    final displayProps = entity.properties
+    final displayProps = widget.entity.properties
         .where((p) => p.name != 'id' || !p.isId)
         .toList();
     final columns = ['id', ...displayProps.map((p) => p.name)];
+    // Ensure minimum width so all columns are accessible via horizontal scroll.
+    // Each column gets at least 160px, plus DataTable's internal spacing.
+    final minTableWidth = columns.length * 160.0 + 40;
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SizedBox(
-        width: columns.length * 160.0 + 40,
-        child: SingleChildScrollView(
-          child: DataTable(
-            showCheckboxColumn: false,
-            headingRowColor: WidgetStateProperty.all(
-              theme.colorScheme.surfaceContainerHighest,
-            ),
-            sortColumnIndex: 0,
-            sortAscending: true,
-            columns: columns.map((name) {
-              final prop = name == 'id'
-                  ? null
-                  : entity.properties.where((p) => p.name == name).firstOrNull;
-              return DataColumn(
-                label: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+    return Scrollbar(
+      controller: _horizontalController,
+      thumbVisibility: true,
+      notificationPredicate: (notification) => notification.depth == 0,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        controller: _horizontalController,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minWidth: minTableWidth),
+          child: Scrollbar(
+            controller: _verticalController,
+            thumbVisibility: true,
+            child: SingleChildScrollView(
+              controller: _verticalController,
+              child: DataTable(
+                showCheckboxColumn: false,
+                headingRowColor: WidgetStateProperty.all(
+                  theme.colorScheme.surfaceContainerHighest,
+                ),
+                sortColumnIndex: 0,
+                sortAscending: true,
+                columns: columns.map((name) {
+                  final prop = name == 'id'
+                      ? null
+                      : widget.entity.properties
+                            .where((p) => p.name == name)
+                            .firstOrNull;
+                  return DataColumn(
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (widget.discovered && prop != null) ...[
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.tertiaryContainer,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              prop.displayType,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                fontSize: 10,
+                                color: theme.colorScheme.onTertiaryContainer,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    if (discovered && prop != null) ...[
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.tertiaryContainer,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          prop.displayType,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            fontSize: 10,
-                            color: theme.colorScheme.onTertiaryContainer,
+                    tooltip: _getColumnTooltip(name, prop),
+                  );
+                }).toList(),
+                rows: widget.rows.map((row) {
+                  return DataRow(
+                    onSelectChanged: (_) {},
+                    cells: [
+                      DataCell(
+                        Text(
+                          '${row.id}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
                           ),
                         ),
                       ),
+                      ...displayProps.map((prop) {
+                        final value = row.values[prop.name];
+                        return DataCell(
+                          _ValueCell(
+                            value: value,
+                            prop: prop,
+                            discovered: widget.discovered,
+                          ),
+                          onTap: () => _showDetail(context, prop.name, value),
+                        );
+                      }),
                     ],
-                  ],
-                ),
-                tooltip: _getColumnTooltip(name, prop),
-              );
-            }).toList(),
-            rows: rows.map((row) {
-              return DataRow(
-                onSelectChanged: (_) {},
-                cells: [
-                  DataCell(
-                    Text(
-                      '${row.id}',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  ...displayProps.map((prop) {
-                    final value = row.values[prop.name];
-                    return DataCell(
-                      _ValueCell(
-                        value: value,
-                        prop: prop,
-                        discovered: discovered,
-                      ),
-                      onTap: () => _showDetail(context, prop.name, value),
-                    );
-                  }),
-                ],
-              );
-            }).toList(),
+                  );
+                }).toList(),
+              ),
+            ),
           ),
         ),
       ),
