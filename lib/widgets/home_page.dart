@@ -24,8 +24,20 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<DbBloc, DbState>(
-      builder: (context, state) {
+    return BlocListener<DbBloc, DbState>(
+      listener: (context, state) {
+        // Show CRUD result messages
+        if (state is DbLoaded && state.crudMessage != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(state.crudMessage!),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      },
+      child: BlocBuilder<DbBloc, DbState>(
+        builder: (context, state) {
         if (state is DbLoading) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -87,7 +99,8 @@ class _HomePageState extends State<HomePage> {
           );
         }
         return const _WelcomeView();
-      },
+        },
+      ),
     );
   }
 
@@ -128,6 +141,7 @@ class _HomePageState extends State<HomePage> {
       error: state.error,
       onRefresh: () => context.read<DbBloc>().add(RefreshData()),
       discovered: state.isDiscovered,
+      dbPath: state.dbPath,
     );
   }
 }

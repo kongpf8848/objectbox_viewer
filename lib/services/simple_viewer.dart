@@ -44,6 +44,7 @@ class SimpleObjectBoxViewer {
         entityInfo.properties.add(
           PropertyInfo(
             id: j.toString(),
+            uid: 0,
             name: 'field_$j',
             type: PropertyType.string.value,
             flags: j == 0 ? 1 : 0, // First field is likely ID

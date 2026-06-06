@@ -3,7 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../models/objectbox_model.dart';
+import '../bloc/db_bloc.dart';
+import 'confirm_delete_dialog.dart';
+import 'entity_edit_dialog.dart';
+import 'backup_warning_dialog.dart';
 
 class DataTablePanel extends StatefulWidget {
   final EntityInfo entity;
@@ -11,6 +16,7 @@ class DataTablePanel extends StatefulWidget {
   final String? error;
   final VoidCallback onRefresh;
   final bool discovered;
+  final String dbPath;
 
   const DataTablePanel({
     super.key,
@@ -19,6 +25,7 @@ class DataTablePanel extends StatefulWidget {
     this.error,
     required this.onRefresh,
     this.discovered = false,
+    required this.dbPath,
   });
 
   @override
@@ -28,12 +35,14 @@ class DataTablePanel extends StatefulWidget {
 class _DataTablePanelState extends State<DataTablePanel> {
   static const int _pageSize = 50;
   int _currentPage = 0;
+  final Set<int> _selectedIds = {};
 
   @override
   void didUpdateWidget(covariant DataTablePanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.entity.id != widget.entity.id) {
       _currentPage = 0;
+      _selectedIds.clear();
     }
   }
 
@@ -114,7 +123,38 @@ class _DataTablePanelState extends State<DataTablePanel> {
                     ),
                   ),
                 ),
+              if (_selectedIds.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${_selectedIds.length} selected',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                ),
+              ],
               const Spacer(),
+              // Delete button
+              IconButton(
+                icon: Icon(
+                  Icons.delete_outline,
+                  size: 20,
+                  color: _selectedIds.isNotEmpty
+                      ? theme.colorScheme.error
+                      : null,
+                ),
+                onPressed: _selectedIds.isNotEmpty ? _onDelete : null,
+                tooltip: 'Delete selected',
+              ),
               IconButton(
                 icon: const Icon(Icons.download, size: 20),
                 onPressed: () => _exportToJson(context),
@@ -129,7 +169,38 @@ class _DataTablePanelState extends State<DataTablePanel> {
           ),
         ),
         // Content
-        Expanded(child: _buildContent(context, pagedRows)),
+        Expanded(
+          child: _EntityTable(
+            entity: widget.entity,
+            rows: pagedRows ?? const [],
+            discovered: widget.discovered,
+            selectedIds: _selectedIds,
+            onSelectionChanged: (id, selected) {
+              setState(() {
+                if (selected) {
+                  _selectedIds.add(id);
+                } else {
+                  _selectedIds.remove(id);
+                }
+              });
+            },
+            onSelectAll: (selected) {
+              setState(() {
+                if (selected) {
+                  for (final row in pagedRows ?? const []) {
+                    _selectedIds.add(row.id);
+                  }
+                } else {
+                  for (final row in pagedRows ?? const []) {
+                    _selectedIds.remove(row.id);
+                  }
+                }
+              });
+            },
+            onDoubleClick: _onEditRow,
+            onContextMenu: _showContextMenu,
+          ),
+        ),
         // Pagination bar
         if (widget.rows != null && totalRows > 0)
           _buildPaginationBar(theme, totalPages),
@@ -254,41 +325,77 @@ class _DataTablePanelState extends State<DataTablePanel> {
     }).toList();
   }
 
-  Widget _buildContent(BuildContext context, List<EntityRow>? pagedRows) {
-    if (widget.error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.orange),
-              const SizedBox(height: 12),
-              Text(
-                'Failed to read data',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              SelectableText(
-                widget.error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+  Future<void> _onDelete() async {
+    if (_selectedIds.isEmpty) return;
 
-    if (widget.rows == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    return _EntityTable(
-      entity: widget.entity,
-      rows: pagedRows ?? const [],
-      discovered: widget.discovered,
+    final confirmed = await showConfirmDeleteDialog(
+      context: context,
+      entityName: widget.entity.name,
+      count: _selectedIds.length,
     );
+
+    if (confirmed != true) return;
+
+    // Check backup status
+    final backupResult = await showBackupWarningDialogWithPath(
+      context: context,
+      dbPath: widget.dbPath,
+    );
+
+    if (backupResult == null) return; // User cancelled
+
+    if (!mounted) return;
+    context.read<DbBloc>().add(
+      DeleteObjects(widget.entity, _selectedIds.toList()),
+    );
+
+    setState(() => _selectedIds.clear());
+  }
+
+  Future<void> _onEditRow(EntityRow row) async {
+    // Check backup status
+    final backupResult = await showBackupWarningDialogWithPath(
+      context: context,
+      dbPath: widget.dbPath,
+    );
+
+    if (backupResult == null) return; // User cancelled
+
+    final result = await showEntityEditDialog(
+      context: context,
+      entity: widget.entity,
+      objectId: row.id,
+      currentValues: row.values,
+    );
+
+    if (result == null || !mounted) return;
+    if (!context.mounted) return;
+    context.read<DbBloc>().add(
+      UpdateObject(widget.entity, row.id, result),
+    );
+  }
+
+  void _showContextMenu(Offset position, EntityRow row) {
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+
+    entry = OverlayEntry(
+      builder: (ctx) => _ContextMenuOverlay(
+        position: position,
+        onEdit: () {
+          entry.remove();
+          _onEditRow(row);
+        },
+        onDelete: () {
+          entry.remove();
+          setState(() => _selectedIds.add(row.id));
+          _onDelete();
+        },
+        onDismiss: () => entry.remove(),
+      ),
+    );
+
+    overlay.insert(entry);
   }
 
   Future<void> _exportToJson(BuildContext context) async {
@@ -337,15 +444,96 @@ class _DataTablePanelState extends State<DataTablePanel> {
   }
 }
 
+// ── Context Menu Overlay ──
+
+class _ContextMenuOverlay extends StatelessWidget {
+  final Offset position;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final VoidCallback onDismiss;
+
+  const _ContextMenuOverlay({
+    required this.position,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // Dismiss layer
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: onDismiss,
+            child: Container(color: Colors.transparent),
+          ),
+        ),
+        // Menu
+        Positioned(
+          left: position.dx,
+          top: position.dy,
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(8),
+            child: IntrinsicWidth(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.edit, size: 18),
+                    title: const Text('Edit', style: TextStyle(fontSize: 14)),
+                    dense: true,
+                    onTap: onEdit,
+                  ),
+                  ListTile(
+                    leading: Icon(
+                      Icons.delete_outline,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    title: Text(
+                      'Delete',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    dense: true,
+                    onTap: onDelete,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Entity Table (internal) ──
+
 class _EntityTable extends StatefulWidget {
   final EntityInfo entity;
   final List<EntityRow> rows;
   final bool discovered;
+  final Set<int> selectedIds;
+  final ValueChanged2<int, bool> onSelectionChanged;
+  final ValueChanged<bool> onSelectAll;
+  final ValueChanged<EntityRow> onDoubleClick;
+  final void Function(Offset position, EntityRow row) onContextMenu;
 
   const _EntityTable({
     required this.entity,
     required this.rows,
     this.discovered = false,
+    required this.selectedIds,
+    required this.onSelectionChanged,
+    required this.onSelectAll,
+    required this.onDoubleClick,
+    required this.onContextMenu,
   });
 
   @override
@@ -366,13 +554,10 @@ class _EntityTableState extends State<_EntityTable> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Exclude 'id' from property columns since it's shown as the first column
     final displayProps = widget.entity.properties
         .where((p) => p.name != 'id' || !p.isId)
         .toList();
     final columns = ['id', ...displayProps.map((p) => p.name)];
-    // Ensure minimum width so all columns are accessible via horizontal scroll.
-    // Each column gets at least 160px, plus DataTable's internal spacing.
     final minTableWidth = columns.length * 160.0 + 40;
 
     return Scrollbar(
@@ -390,7 +575,7 @@ class _EntityTableState extends State<_EntityTable> {
             child: SingleChildScrollView(
               controller: _verticalController,
               child: DataTable(
-                showCheckboxColumn: false,
+                showCheckboxColumn: true,
                 headingRowColor: WidgetStateProperty.all(
                   theme.colorScheme.surfaceContainerHighest,
                 ),
@@ -440,8 +625,12 @@ class _EntityTableState extends State<_EntityTable> {
                   );
                 }).toList(),
                 rows: widget.rows.map((row) {
+                  final isSelected = widget.selectedIds.contains(row.id);
                   return DataRow(
-                    onSelectChanged: (_) {},
+                    selected: isSelected,
+                    onSelectChanged: (val) {
+                      widget.onSelectionChanged(row.id, val ?? false);
+                    },
                     cells: [
                       DataCell(
                         Text(
@@ -451,6 +640,7 @@ class _EntityTableState extends State<_EntityTable> {
                             fontSize: 13,
                           ),
                         ),
+                        onDoubleTap: () => widget.onDoubleClick(row),
                       ),
                       ...displayProps.map((prop) {
                         final value = row.values[prop.name];
@@ -461,6 +651,7 @@ class _EntityTableState extends State<_EntityTable> {
                             discovered: widget.discovered,
                           ),
                           onTap: () => _showDetail(context, prop.name, value),
+                          onDoubleTap: () => widget.onDoubleClick(row),
                         );
                       }),
                     ],
@@ -515,6 +706,9 @@ class _EntityTableState extends State<_EntityTable> {
     );
   }
 }
+
+/// Typedef for two-argument callback.
+typedef ValueChanged2<T, U> = void Function(T, U);
 
 class _ValueCell extends StatelessWidget {
   final dynamic value;

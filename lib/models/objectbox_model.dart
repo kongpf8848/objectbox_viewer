@@ -9,6 +9,17 @@ String _parseIdFromIdUid(dynamic value) {
   return str;
 }
 
+/// Parse ObjectBox IdUid format "id:uid" – extracts the uid part.
+int _parseUidFromIdUid(dynamic value) {
+  if (value == null) return 0;
+  final str = value.toString();
+  if (str.contains(':')) {
+    final parts = str.split(':');
+    if (parts.length >= 2) return int.tryParse(parts[1]) ?? 0;
+  }
+  return 0;
+}
+
 int _parseIdIntFromIdUid(dynamic value) {
   final idStr = _parseIdFromIdUid(value);
   return int.tryParse(idStr) ?? 0;
@@ -21,8 +32,11 @@ class ObjectBoxModel {
   final List<IndexInfo> indexes;
   final List<RelationInfo> relations;
   final int lastEntityId;
+  final int lastEntityUid;
   final int lastIndexId;
+  final int lastIndexUid;
   final int lastRelationId;
+  final int lastRelationUid;
   final int modelVersion;
   final bool discovered;
 
@@ -31,8 +45,11 @@ class ObjectBoxModel {
     required this.indexes,
     required this.relations,
     required this.lastEntityId,
+    required this.lastEntityUid,
     required this.lastIndexId,
+    required this.lastIndexUid,
     required this.lastRelationId,
+    required this.lastRelationUid,
     required this.modelVersion,
     this.discovered = false,
   });
@@ -52,10 +69,13 @@ class ObjectBoxModel {
       relations: relationsJson
           .map((e) => RelationInfo.fromJson(e as Map<String, dynamic>))
           .toList(),
-      lastEntityId: _parseIdIntFromIdUid(json['_lastEntityId']),
-      lastIndexId: _parseIdIntFromIdUid(json['_lastIndexId']),
-      lastRelationId: _parseIdIntFromIdUid(json['_lastRelationId']),
-      modelVersion: json['_modelVersion'] ?? 0,
+      lastEntityId: _parseIdIntFromIdUid(json['lastEntityId']),
+      lastEntityUid: _parseUidFromIdUid(json['lastEntityId']),
+      lastIndexId: _parseIdIntFromIdUid(json['lastIndexId']),
+      lastIndexUid: _parseUidFromIdUid(json['lastIndexId']),
+      lastRelationId: _parseIdIntFromIdUid(json['lastRelationId']),
+      lastRelationUid: _parseUidFromIdUid(json['lastRelationId']),
+      modelVersion: json['modelVersion'] ?? 0,
       discovered: false,
     );
   }
@@ -74,8 +94,11 @@ class ObjectBoxModel {
       indexes: [],
       relations: [],
       lastEntityId: entities.length,
+      lastEntityUid: 0,
       lastIndexId: 0,
+      lastIndexUid: 0,
       lastRelationId: 0,
+      lastRelationUid: 0,
       modelVersion: 0,
       discovered: true,
     );
@@ -84,16 +107,20 @@ class ObjectBoxModel {
 
 class EntityInfo {
   String id;
+  final int uid;
   final String name;
   final int lastPropertyId;
+  final int lastPropertyUid;
   List<PropertyInfo> properties;
   final List<IndexInfo> entityIndexes;
   final bool discovered;
 
   EntityInfo({
     required this.id,
+    required this.uid,
     required this.name,
     required this.lastPropertyId,
+    required this.lastPropertyUid,
     required this.properties,
     required this.entityIndexes,
     this.discovered = false,
@@ -105,8 +132,10 @@ class EntityInfo {
 
     return EntityInfo(
       id: _parseIdFromIdUid(json['id']),
+      uid: _parseUidFromIdUid(json['id']),
       name: json['name'] ?? '',
       lastPropertyId: _parseIdIntFromIdUid(json['lastPropertyId']),
+      lastPropertyUid: _parseUidFromIdUid(json['lastPropertyId']),
       properties: propsJson
           .map((p) => PropertyInfo.fromJson(p as Map<String, dynamic>))
           .toList(),
@@ -122,8 +151,10 @@ class EntityInfo {
   factory EntityInfo.discovered(String name) {
     return EntityInfo(
       id: name.hashCode.toString(),
+      uid: 0,
       name: name,
       lastPropertyId: 0,
+      lastPropertyUid: 0,
       properties: [], // will be discovered at runtime from FlatBuffer VTable
       entityIndexes: [],
       discovered: true,
@@ -180,6 +211,7 @@ enum PropertyType {
 
 class PropertyInfo {
   final String id;
+  final int uid;
   final String name;
   final int type;
   final int flags;
@@ -193,6 +225,7 @@ class PropertyInfo {
 
   PropertyInfo({
     required this.id,
+    required this.uid,
     required this.name,
     required this.type,
     required this.flags,
@@ -205,6 +238,7 @@ class PropertyInfo {
     final idStr = _parseIdFromIdUid(json['id']);
     return PropertyInfo(
       id: idStr,
+      uid: _parseUidFromIdUid(json['id']),
       name: json['name'] ?? '',
       type: json['type'] ?? 0,
       flags: json['flags'] ?? 0,
@@ -218,6 +252,7 @@ class PropertyInfo {
   factory PropertyInfo.discovered(int fieldIndex, PropertyType inferredType) {
     return PropertyInfo(
       id: 'discovered_$fieldIndex',
+      uid: 0,
       name: 'field_$fieldIndex',
       type: inferredType.value,
       flags: 0,

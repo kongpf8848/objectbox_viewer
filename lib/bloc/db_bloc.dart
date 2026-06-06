@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../models/objectbox_model.dart';
 import '../services/objectbox_service.dart';
+import '../services/objectbox_crud_service.dart';
 
 // View mode for selected entity
 enum EntityViewMode { data, schema }
@@ -41,6 +42,25 @@ class RefreshData extends DbEvent {}
 
 class CloseDatabase extends DbEvent {}
 
+class DeleteObjects extends DbEvent {
+  final EntityInfo entity;
+  final List<int> objectIds;
+  DeleteObjects(this.entity, this.objectIds);
+
+  @override
+  List<Object?> get props => [entity, objectIds];
+}
+
+class UpdateObject extends DbEvent {
+  final EntityInfo entity;
+  final int objectId;
+  final Map<String, dynamic> values;
+  UpdateObject(this.entity, this.objectId, this.values);
+
+  @override
+  List<Object?> get props => [entity, objectId, values];
+}
+
 // State
 sealed class DbState extends Equatable {
   @override
@@ -60,6 +80,9 @@ class DbLoaded extends DbState {
   final String? error;
   final EntityViewMode viewMode;
 
+  final bool isWriting;
+  final String? crudMessage;
+
   DbLoaded({
     required this.dbPath,
     required this.model,
@@ -68,6 +91,8 @@ class DbLoaded extends DbState {
     this.rows,
     this.error,
     this.viewMode = EntityViewMode.data,
+    this.isWriting = false,
+    this.crudMessage,
   });
 
   /// True when the model was discovered without objectbox-model.json
@@ -78,8 +103,11 @@ class DbLoaded extends DbState {
     List<EntityRow>? rows,
     String? error,
     EntityViewMode? viewMode,
+    bool? isWriting,
+    String? crudMessage,
     bool clearRows = false,
     bool clearError = false,
+    bool clearCrudMessage = false,
   }) {
     return DbLoaded(
       dbPath: dbPath,
@@ -89,6 +117,8 @@ class DbLoaded extends DbState {
       rows: clearRows ? null : (rows ?? this.rows),
       error: clearError ? null : (error ?? this.error),
       viewMode: viewMode ?? this.viewMode,
+      isWriting: isWriting ?? this.isWriting,
+      crudMessage: clearCrudMessage ? null : (crudMessage ?? this.crudMessage),
     );
   }
 
@@ -101,6 +131,8 @@ class DbLoaded extends DbState {
     error,
     fileInfo,
     viewMode,
+    isWriting,
+    crudMessage,
   ];
 }
 
@@ -115,6 +147,7 @@ class DbError extends DbState {
 // BLoC
 class DbBloc extends Bloc<DbEvent, DbState> {
   final ObjectBoxService _service = ObjectBoxService();
+  final ObjectBoxCrudService _crudService = ObjectBoxCrudService();
 
   DbBloc() : super(DbInitial()) {
     on<OpenDatabase>(_onOpenDatabase);
@@ -122,6 +155,8 @@ class DbBloc extends Bloc<DbEvent, DbState> {
     on<SelectViewMode>(_onSelectViewMode);
     on<RefreshData>(_onRefreshData);
     on<CloseDatabase>(_onCloseDatabase);
+    on<DeleteObjects>(_onDeleteObjects);
+    on<UpdateObject>(_onUpdateObject);
   }
 
   Future<void> _onOpenDatabase(
@@ -132,7 +167,27 @@ class DbBloc extends Bloc<DbEvent, DbState> {
     try {
       final model = await _service.openDatabase(event.path);
       final fileInfo = await _service.getDbFileInfo(event.path);
-      emit(DbLoaded(dbPath: event.path, model: model, fileInfo: fileInfo));
+
+      // Open CRUD store
+      String? crudWarning;
+      try {
+        await _crudService.openStore(event.path, model);
+      } catch (e, st) {
+        // CRUD store open failure shouldn't block read-only access
+        crudWarning = 'Write mode unavailable: $e';
+        print('━━━ CRUD Store Open Failed ━━━');
+        print('Error: $e');
+        print('Stack: $st');
+      }
+
+      emit(
+        DbLoaded(
+          dbPath: event.path,
+          model: model,
+          fileInfo: fileInfo,
+          crudMessage: crudWarning,
+        ),
+      );
     } catch (e) {
       emit(DbError(e.toString()));
     }
@@ -212,6 +267,79 @@ class DbBloc extends Bloc<DbEvent, DbState> {
     CloseDatabase event,
     Emitter<DbState> emit,
   ) async {
+    _crudService.closeStore();
     emit(DbInitial());
   }
+
+  Future<void> _onDeleteObjects(
+    DeleteObjects event,
+    Emitter<DbState> emit,
+  ) async {
+    final current = state;
+    if (current is! DbLoaded) return;
+
+    emit(current.copyWith(isWriting: true, clearCrudMessage: true));
+
+    try {
+      // Ensure CRUD store is open
+      if (!_crudService.isOpen) {
+        await _crudService.openStore(current.dbPath, current.model);
+      }
+
+      final count = await _crudService.deleteObjects(
+        event.entity,
+        event.objectIds,
+      );
+
+      emit(
+        current.copyWith(
+          isWriting: false,
+          crudMessage: 'Deleted $count object${count != 1 ? "s" : ""}',
+        ),
+      );
+
+      // Auto-refresh after delete
+      add(SelectEntity(event.entity));
+    } catch (e) {
+      emit(current.copyWith(isWriting: false, error: 'Delete failed: $e'));
+    }
+  }
+
+  Future<void> _onUpdateObject(
+    UpdateObject event,
+    Emitter<DbState> emit,
+  ) async {
+    final current = state;
+    if (current is! DbLoaded) return;
+
+    emit(current.copyWith(isWriting: true, clearCrudMessage: true));
+
+    try {
+      // Ensure CRUD store is open
+      if (!_crudService.isOpen) {
+        await _crudService.openStore(current.dbPath, current.model);
+      }
+
+      await _crudService.updateObject(
+        event.entity,
+        event.objectId,
+        event.values,
+      );
+
+      emit(
+        current.copyWith(
+          isWriting: false,
+          crudMessage: 'Updated object #${event.objectId}',
+        ),
+      );
+
+      // Auto-refresh after update
+      add(SelectEntity(event.entity));
+    } catch (e) {
+      emit(current.copyWith(isWriting: false, error: 'Update failed: $e'));
+    }
+  }
+
+  /// Get the CRUD service (for backup check before writes).
+  ObjectBoxCrudService get crudService => _crudService;
 }

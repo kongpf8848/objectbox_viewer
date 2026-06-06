@@ -129,6 +129,7 @@ class _ObxParser {
         entityInfo.properties.add(
           PropertyInfo(
             id: f.propId.toString(),
+            uid: 0,
             name: f.name,
             type: f.obxType,
             flags: f.isId ? 1 : 0,
