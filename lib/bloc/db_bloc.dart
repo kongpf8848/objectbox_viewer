@@ -260,6 +260,7 @@ class DbBloc extends Bloc<DbEvent, DbState> {
   Future<void> _onRefreshData(RefreshData event, Emitter<DbState> emit) async {
     final current = state;
     if (current is! DbLoaded || current.selectedEntity == null) return;
+    emit(current.copyWith(clearCrudMessage: true, clearError: true));
     add(SelectEntity(current.selectedEntity!));
   }
 
