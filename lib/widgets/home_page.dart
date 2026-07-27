@@ -7,6 +7,12 @@ import 'data_table_panel.dart';
 import 'entity_schema_panel.dart';
 import 'schema_detail_panel.dart';
 
+bool shouldShowCrudMessage(DbState previous, DbState current) {
+  final previousMessage = previous is DbLoaded ? previous.crudMessage : null;
+  final currentMessage = current is DbLoaded ? current.crudMessage : null;
+  return currentMessage != null && currentMessage != previousMessage;
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -25,6 +31,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return BlocListener<DbBloc, DbState>(
+      listenWhen: shouldShowCrudMessage,
       listener: (context, state) {
         // Show CRUD result messages
         if (state is DbLoaded && state.crudMessage != null) {
@@ -38,67 +45,73 @@ class _HomePageState extends State<HomePage> {
       },
       child: BlocBuilder<DbBloc, DbState>(
         builder: (context, state) {
-        if (state is DbLoading) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (state is DbError) {
-          return _ErrorView(message: state.message);
-        }
-        if (state is DbLoaded) {
-          return Column(
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    // Left: Entity list (animated width)
-                    ClipRect(
-                      child: AnimatedContainer(
-                        width: _isLeftVisible ? _leftWidth : 0,
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.easeInOut,
-                        child: _isLeftVisible
-                            ? EntityListPanel(
-                                model: state.model,
-                                selectedEntity: state.selectedEntity,
-                                viewMode: state.viewMode,
-                                onEntitySelected: (entity) => context
-                                    .read<DbBloc>()
-                                    .add(SelectEntity(entity)),
-                                onViewModeChanged: (mode) => context
-                                    .read<DbBloc>()
-                                    .add(SelectViewMode(mode)),
-                                onOpenDb: () => _openDatabase(context),
-                              )
-                            : const SizedBox.shrink(),
+          if (state is DbLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (state is DbError) {
+            return _ErrorView(message: state.message);
+          }
+          if (state is DbLoaded) {
+            return Column(
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      // Left: Entity list (animated width)
+                      ClipRect(
+                        child: AnimatedContainer(
+                          width: _isLeftVisible ? _leftWidth : 0,
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeInOut,
+                          child: _isLeftVisible
+                              ? EntityListPanel(
+                                  model: state.model,
+                                  selectedEntity: state.selectedEntity,
+                                  viewMode: state.viewMode,
+                                  onEntitySelected: (entity) => context
+                                      .read<DbBloc>()
+                                      .add(SelectEntity(entity)),
+                                  onViewModeChanged: (mode) => context
+                                      .read<DbBloc>()
+                                      .add(SelectViewMode(mode)),
+                                  onOpenDb: () => _openDatabase(context),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
                       ),
-                    ),
-                    // Resizable divider
-                    _ResizableDivider(
-                      onDrag: (delta) => setState(() {
-                        if (_isLeftVisible) {
-                          _leftWidth = (_leftWidth + delta).clamp(0, _maxWidth);
-                          if (_leftWidth < 60) {
-                            _isLeftVisible = false;
-                            _leftWidth = 0;
+                      // Resizable divider
+                      _ResizableDivider(
+                        onDrag: (delta) => setState(() {
+                          if (_isLeftVisible) {
+                            _leftWidth = (_leftWidth + delta).clamp(
+                              0,
+                              _maxWidth,
+                            );
+                            if (_leftWidth < 60) {
+                              _isLeftVisible = false;
+                              _leftWidth = 0;
+                            }
+                          } else {
+                            _leftWidth = (_leftWidth + delta).clamp(
+                              0,
+                              _maxWidth,
+                            );
+                            if (_leftWidth > 20) {
+                              _isLeftVisible = true;
+                              _leftWidth = _minWidth;
+                            }
                           }
-                        } else {
-                          _leftWidth = (_leftWidth + delta).clamp(0, _maxWidth);
-                          if (_leftWidth > 20) {
-                            _isLeftVisible = true;
-                            _leftWidth = _minWidth;
-                          }
-                        }
-                      }),
-                    ),
-                    // Right: Content
-                    Expanded(child: _buildRightPanel(context, state)),
-                  ],
+                        }),
+                      ),
+                      // Right: Content
+                      Expanded(child: _buildRightPanel(context, state)),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          );
-        }
-        return const _WelcomeView();
+              ],
+            );
+          }
+          return const _WelcomeView();
         },
       ),
     );
